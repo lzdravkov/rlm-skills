@@ -170,7 +170,7 @@ These control Product Catalog Management feature settings and product specificat
 
 **ProductCatalogManagementSettings** (API v64.0+)
 - File: `settings/ProductCatalogManagementSettings.settings`
-- Fields: `productDeepCloneContextDefOrgValue`, `productDeepCloneExpressionSetOrgValue`
+- Fields: `productDeepCloneContextDefOrgValue`, `productDeepCloneExpressionSetOrgValue` (both confirmed in the v68 guide — RLM Developer Guide, Ch.4 Product Discovery → Metadata API)
 - Deploy: `sf project deploy start --metadata "Settings:ProductCatalogManagement" --target-org <alias>`
 
 **ProductSpecificationType** (API v60.0+)

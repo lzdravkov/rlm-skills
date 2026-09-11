@@ -7,7 +7,7 @@ Source: RLM Developer Guide (v68, Winter '27) — Chapter 3: Revenue Management 
 | Seq | Object Name | API Name | Lookup Fields (Foreign Keys) |
 |---|---|---|---|
 | 1 | Product Specification Type | ProductSpecificationType | User |
-| 2 | Product Specification Record Type | ProductSpecificationRecordType | Product Specification Type |
+| 2 | Product Specification Record Type | ProductSpecificationRecType | Product Specification Type |
 | 3 | Attribute Picklist | AttributePicklist | User, User Group, Unit of Measure |
 | 4 | Attribute Picklist Value | AttributePicklistValue | User, AttributePicklist (Master-Detail) |
 | 5 | Unit of Measure Class | UnitOfMeasureClass | User, Unit of Measure |
@@ -70,7 +70,7 @@ Source: RLM Developer Guide (v68, Winter '27) — Chapter 3: Revenue Management 
 - Always deploy parent before child
 - Circular dependencies: deploy A without B reference → deploy B → redeploy A with B reference
 - Non-extensible objects (no GUID field possible): use an external reference table
-- Metadata types (ProductSpecificationType, ProductSpecificationRecordType): deploy before any data
+- Metadata types (ProductSpecificationType, ProductSpecificationRecType): deploy before any data
 
 ## Note on row 35 (RuntimeCatalogIndexSetting)
 *Annotated (v68 re-baseline, 2026-09-11):* `RuntimeCatalogIndexSetting` was searched for in the v68

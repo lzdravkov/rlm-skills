@@ -82,11 +82,11 @@ A bundle product has child `ProductRelatedComponent` records:
 - BOM rules are enforced at runtime by the PST API (PlaceSalesTransactionExecutor), not SOQL
 
 ### Step 6: Selling Models
-`ProductSellingModel` defines One-Time, Evergreen, or Term subscription types.
+`ProductSellingModel` defines One-Time, Evergreen, or Term-Defined subscription types. (v68 `SellingModelType` picklist values: `OneTime` | `Evergreen` | `TermDefined` — note `TermDefined`, not `Term`.)
 `ProductSellingModelOption` links a selling model to a Product2.
 
 Minimum setup for a configurable product:
-1. Create `ProductSellingModel` with `Name`, `SellingModelType` (OneTime | Evergreen | Term)
+1. Create `ProductSellingModel` with `Name`, `SellingModelType` (OneTime | Evergreen | TermDefined)
 2. Create `ProductSellingModelOption` linking to Product2 + ProductSellingModel
 3. Create `PriceBookEntry` linking Product2 + Pricebook2 + ProductSellingModel
 

@@ -28,8 +28,12 @@ Order (Activated)
 ## Asset Prerequisites
 
 Before any lifecycle action:
-1. `Asset.Status = 'Purchased'`
-2. `Asset.LifecycleEndDate > TODAY` (for renewal/amendment — not required for cancellation)
+1. `Asset.Status = 'Purchased'` (confirmed v68 value)
+2. `Asset.LifecycleEndDate > TODAY` (for renewal/amendment — not required for cancellation).
+   **Unverified:** `Asset.LifecycleEndDate`/`LifecycleStartDate` were not found in the v68 Standard
+   Objects sections reviewed (see `rlm-assets/references/asset-object-reference.md`). Prefer the
+   **Get Renewable Assets Summary Action** for eligibility; confirm these date fields exist in your org
+   before filtering on them (the SOQL below is illustrative and inherits the same caveat).
 3. No pending in-flight lifecycle action on the asset
 4. For renewal: confirm eligibility via the **Get Renewable Assets Summary Action**'s `lastAssetAction`
    / `endDate` output rather than a `RenewalStatus` field (see note below — `Asset.RenewalStatus`

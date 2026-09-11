@@ -127,7 +127,7 @@ Each box names the skill responsible. Arrows show data flow and dependencies.
 │                                                                            │
 │  • Assets created from Order Items after fulfillment                       │
 │  • CreateAssetOrderEvent fires when assets are created                     │
-│  • Asset.Status = 'Purchased', LifecycleEndDate set from term              │
+│  • Asset.Status = 'Purchased' (lifecycle date fields: see rlm-assets)      │
 │  • AssetStatePeriod tracks state changes over subscription lifetime        │
 └──────────────────────────────────────────────────────────────────────────┘
 
@@ -190,7 +190,7 @@ Each box names the skill responsible. Arrows show data flow and dependencies.
 | Transaction Creation | `quoteId`, `quoteLineItemId` | Configurator (PST), Pricing |
 | Configuration (PST) | Updated `QuoteLineItemAttribute`, `Quote.GrandTotal` | Pricing, Billing |
 | Order Creation | `orderId` | DRO (FulfillmentPlan), Usage (TransactionUsageEntitlement), Billing |
-| Fulfillment | `FulfillmentStep.Status = Completed` | Asset creation |
+| Fulfillment | `FulfillmentStep.State = Completed` | Asset creation |
 | Asset Creation | `assetId` | Billing (BillingSchedule), Asset Lifecycle |
 | Billing | `Invoice`, `InvoiceLine` | Payment, Credit Memo |
 | Amendment | new `quoteId` | Configurator loop, Billing (proration) |

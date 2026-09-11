@@ -260,8 +260,8 @@ Cause: Pricing not triggered — PST or headless pricing action not called.
 Solution: After inserting the QuoteLineItem, call `RevSalesTrxn.PlaceSalesTransactionExecutor.execute()` or the `Run Salesforce Headless Pricing Action` invocable to trigger pricing.
 
 ### Asset lifecycle action fails with "No active assets found"
-Cause: Asset `Status` is not `Purchased` or asset `LifecycleEndDate` has passed.
-Solution: Verify `Asset.Status = 'Purchased'` and `Asset.LifecycleEndDate > TODAY`.
+Cause: Asset `Status` is not `Purchased`, or the asset's term has passed.
+Solution: Verify `Asset.Status = 'Purchased'` (confirmed v68 value). Prefer the **Get Renewable Assets Summary Action** to confirm eligibility. (Note: `Asset.LifecycleEndDate`/`LifecycleStartDate` are **unverified** in v68 — not found in the Standard Objects sections reviewed; see `rlm-assets`. Don't filter on them without confirming they exist in your org.)
 
 ### Error: "DML on QuoteLineItemAttribute not allowed"
 Cause: Standard `insert` / `delete` used on QuoteLineItemAttribute.

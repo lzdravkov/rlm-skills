@@ -45,12 +45,22 @@ Body:
       }
     ]
   },
-  "options": {
-    "applyBomRules": true,
-    "applyPricing": true
+  "pricingPreference": "System",
+  "configurationOptions": {
+    "addDefaultConfiguration": true,
+    "executeConfigurationRules": true,
+    "validateProductCatalog": true
   }
 }
 ```
+> **Correction (v68 re-baseline):** the prior `"options": { "applyBomRules": true, "applyPricing": true }`
+> block was fabricated — `applyBomRules`/`applyPricing` appear nowhere in the v68 guide. Configuration
+> is controlled by the documented `ConfigurationOptionsInput` properties (`addDefaultConfiguration`,
+> `executeConfigurationRules`, `validateAmendRenewCancel`, `validateProductCatalog`) and pricing by the
+> separate `pricingPreference` enum (`System`/…), mirroring the Apex `execute(pricingPreference,
+> graph, configurationInput, configurationOptions)` signature (RLM Developer Guide, Ch.8 Transaction
+> Management → PlaceQuote/RevSalesTrxn Namespace). Confirm the exact REST envelope field nesting against
+> Ch.8 Business APIs → Place Sales Transaction before relying on this payload verbatim.
 
 **Important**: PST does NOT return created record IDs. Query for them after the call.
 
@@ -145,6 +155,12 @@ flat `quoteId` field as previously documented.
 }
 ```
 Response: `outputValues: { "record_id": "0Q0...", "requestIdentifier": "16P..." }`
+
+> **Note on output naming:** the invocable action's documented **output parameter** is `amendRecordId`
+> (and `cancelRecordId` for cancellation), which is how `rlm-transaction-management/SKILL.md` and
+> `asset-lifecycle-patterns.md` refer to it. The serialized JSON `outputValues` key in the guide's own
+> sample response is the snake_case `record_id` shown above — same value, two representations (a common
+> Salesforce invocable-action quirk). Both are correct; don't treat this as a contradiction.
 
 > For usage products, creating an order directly (`amendOutputType: "Order"`) is **not supported** —
 > it can create Order Products without required Rate Card Entry records, which can cause order

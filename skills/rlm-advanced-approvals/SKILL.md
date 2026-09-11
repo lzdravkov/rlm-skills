@@ -203,6 +203,8 @@ This resource lets a caller simulate what approval steps/approvers would be gene
 
 ## ApprovalWorkItem Smart Approval Fields
 
+_Fields confirmed in the v68 guide (RLM Developer Guide, Ch.9 Advanced Approvals → Fields on Standard Objects, ApprovalWorkItem)._
+
 | Field | Type | Description |
 |---|---|---|
 | `IsAutoReviewed` | Boolean | Whether this work item was auto-approved/rejected by smart approval rules |

@@ -141,7 +141,7 @@ type WeatherProtectiveEnclosure : Enclosure;
 | "Rule evaluation failed" | Syntax error in a `constraint()`/`require()`/`exclude()` statement | Check CML syntax — parentheses, quoted string literals, and correct use of `->`, `&&`, `\|\|` |
 | "Configuration flow not found" | ProductConfigFlowAssignment missing | Create assignment linking product + flow |
 | Rule not triggering | Flow not activated | Activate the ProductConfigurationFlow |
-| Model save fails with "type not declared" | A relation references a type that isn't explicitly declared, and `skipTypeGeneration` is set to `"true"` | Declare every type your CML references, or remove `skipTypeGeneration` |
+| Model save fails with "type not declared" | A relation references a type that isn't explicitly declared, and `skipTypeGeneration` is set to `"true"` | Declare every type your CML references, or remove `skipTypeGeneration` (setting confirmed in the v68 guide — RLM Developer Guide, Ch.7 Product Configurator → CML) |
 
 ---
 

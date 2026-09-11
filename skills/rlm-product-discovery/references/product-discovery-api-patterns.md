@@ -1,6 +1,6 @@
 # Product Discovery — API Patterns Reference
 
-Base path: `/services/data/v66.0/connect/cpq/`
+Base path: `/services/data/v68.0/connect/cpq/`
 All methods: POST (composite API)
 Available: Enterprise, Unlimited, Developer Editions of Revenue Cloud
 
@@ -160,6 +160,9 @@ Available: Enterprise, Unlimited, Developer Editions of Revenue Cloud
 | `includeCatalogDetails` | Boolean | Optional (v61.0) | Include catalog info in response |
 | `additionalFields` | Map<String, AdditionalFieldsInput> | Optional (v61.0) | Extra Product2 fields |
 | `usePromotions` | Boolean | Optional (v66.0) | GPM promotions |
+| `executeConfigurationRules` | Boolean | Optional (v67.0) | Run Product Configurator config rules against returned products |
+| `transactionContextId` | String | Optional (v67.0) | Correlates the request with an in-progress configuration/transaction context |
+| `transactionId` | String | Optional (v67.0) | Identifies the transaction the request is part of, for rule evaluation and telemetry |
 
 ### Product Details
 `POST /connect/cpq/products/{productId}` — API v60.0
@@ -309,6 +312,14 @@ If both `guidedSelectionResponseId` and `searchTerms` are provided, `searchTerms
 
 Custom procedure: add `"qualificationProcedure": "MyProcApiName"`. Default procedure runs if omitted.
 
+### Product Recommendations (Constraint Rule Engine)
+`POST /revenue/product-discovery/products/recommendations`
+
+*Note (v68 re-baseline):* this resource is under `/revenue/...`, not `/connect/cpq/...`, unlike the
+other endpoints on this page. It powers the **Get Product Recommendations Action** standard
+invocable action (see `references/product-discovery-invocable-actions.md`) and returns
+recommended products for a given context using the Constraint Rule Engine.
+
 ---
 
 ## Pagination Pattern
@@ -345,14 +356,24 @@ Multiple criteria are combined with `AND`.
 
 ## Catalog Index Management
 
-After deploying or updating products, rebuild the runtime catalog index:
-```bash
-# Create RuntimeCatalogIndexSetting record to trigger rebuild
-sf data create record \
-  --sobject RuntimeCatalogIndexSetting \
-  --values "RebuildIndex=true" \
-  --target-org <alias>
+After deploying or updating products, rebuild the runtime catalog index using the PCM index
+Business API (owned by `rlm-product-catalog`, documented in full in
+`skills/rlm-product-catalog/references/pcm-api-patterns.md` › Product Index Management):
+
 ```
+POST /connect/pcm/index/deploy
+```
+
+*Correction (v68 re-baseline, 2026-09-11):* the previous guidance to create a
+`RuntimeCatalogIndexSetting` record with a `RebuildIndex` field is not supported — no such sObject
+was found in the v68 PCM Standard Objects section (Ch.4, printed pp.70–118; the alphabetical listing
+runs `AttributeCategory` → `ProductSpecificationType` with no `Runtime*` object anywhere in between).
+Use the REST resource above instead. Related resources:
+
+- `GET, PUT /connect/pcm/index/configurations` — retrieve/persist index configuration
+- `GET /connect/pcm/index/snapshots` — created snapshots + snapshot indexes (poll here for build status)
+- `GET, PATCH /connect/pcm/index/setting` — fetch/update indexing & search settings
+- `GET /connect/pcm/index/error` — count/details of indexing errors
 
 Index build types:
 - `FULL` — complete rebuild

@@ -7,6 +7,17 @@
 
 ## Apex: Full PST Save Pattern
 
+> **Corrected for v68 (RLM Developer Guide, Chapter 8 › RevSalesTrxn Namespace, printed
+> p.1737):** the `RevSalesTrxn` namespace does **not** contain `SalesTransactionGraph` or
+> `SalesTransactionMode` — neither exists in the documented v68 namespace class list, and
+> `ConfigurationOptionsInput` is a typed class (Boolean properties `addDefaultConfiguration`,
+> `executeConfigurationRules`, `validateAmendRenewCancel`, `validateProductCatalog`), not a
+> `Map<String, Object>` with `applyBomRules`/`applyPricing` keys. The graph is built from
+> `RecordResource` + `RecordWithReferenceRequest` objects wrapped in a `GraphRequest`, and
+> `execute()` takes a `PricingPreferenceEnum` and a `ConfigurationExecutionEnum` (not two
+> `SalesTransactionMode` values). The pattern below is adapted from the guide's own
+> `PlaceSalesTransactionTest.callPSTAPI_Post()` worked example (printed pp.1751–1756).
+
 ```apex
 /**
  * Saves attribute selections for a QuoteLineItem via PST.
@@ -45,23 +56,44 @@ private static void executePst(
     String quoteLineItemId,
     List<AttributeInput> attrs
 ) {
-    // Build the sales transaction graph
-    RevSalesTrxn.SalesTransactionGraph graph = buildGraph(quoteId, quoteLineItemId, attrs);
+    // Build one RecordResource per attribute to create, wrap each in a
+    // RecordWithReferenceRequest, and collect them into a single GraphRequest.
+    List<RevSalesTrxn.RecordWithReferenceRequest> records = new List<RevSalesTrxn.RecordWithReferenceRequest>();
+    Integer refIdx = 0;
+    for (AttributeInput attr : attrs) {
+        RevSalesTrxn.RecordResource attrResource =
+            new RevSalesTrxn.RecordResource(QuoteLineItemAttribute.getSobjectType(), 'POST');
+        Map<String, Object> fieldValues = new Map<String, Object>();
+        fieldValues.put('QuoteLineItemId', quoteLineItemId);
+        fieldValues.put('AttributeValue', attr.value);
+        if (attr.dataType == 'Picklist') {
+            // Both fields are required for Picklist types — see Payload Requirements below.
+            fieldValues.put('AttributePicklistValueId', attr.picklistValueId);
+        }
+        attrResource.fieldValues = fieldValues;
+        records.add(new RevSalesTrxn.RecordWithReferenceRequest('refAttr' + refIdx, attrResource));
+        refIdx++;
+    }
 
-    Map<String, Object> configOptions = new Map<String, Object>{
-        'applyBomRules' => true,
-        'applyPricing'  => true
-    };
+    RevSalesTrxn.GraphRequest graphRequest = new RevSalesTrxn.GraphRequest('attrGraph', records);
 
-    RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
-        graph,
-        RevSalesTrxn.SalesTransactionMode.SYSTEM,
-        RevSalesTrxn.SalesTransactionMode.SYSTEM,
+    RevSalesTrxn.ConfigurationOptionsInput configOptions = new RevSalesTrxn.ConfigurationOptionsInput();
+    configOptions.executeConfigurationRules = true;  // adhere to BOM/config rules
+    configOptions.validateProductCatalog    = true;
+
+    RevSalesTrxn.PlaceSalesTransactionResponse response = RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
+        graphRequest,
+        RevSalesTrxn.PricingPreferenceEnum.SYSTEM,
+        RevSalesTrxn.ConfigurationExecutionEnum.SYSTEM,
         configOptions,
-        null
+        null   // contextId — not required when starting a new transaction
     );
 }
 ```
+> Field names on `QuoteLineItemAttribute` match the existing skill assumptions and the Payload
+> Requirements section below; they were not independently re-verified against the Ch.8
+> Transaction Management field list in this pass — confirm against your org if you see
+> field-not-found errors.
 
 ---
 

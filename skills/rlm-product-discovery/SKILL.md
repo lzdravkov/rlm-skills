@@ -1,9 +1,9 @@
 ---
 name: rlm-product-discovery
 description: Search and browse product catalogs, categories, and products using the Product Discovery Business APIs (/connect/cpq/ POST endpoints), Standard Invocable Actions, and Apex Reference. Use when finding products by catalog/category hierarchy, running full-text or faceted search, executing guided selection, running qualification procedures, or fetching bulk product details with pricing. Do NOT use for writing product catalog data (use rlm-product-catalog) or configuring product attributes after selection (use rlm-product-configurator). Triggers on: "find product", "browse catalog", "product search", "catalog list", "category products", "guided selection", "qualification procedure", "bulk product details", "product discovery", "connect/cpq", "search term", "faceted search", "product eligibility".
-compatibility: Salesforce Revenue Cloud, API v60.0+, Enterprise/Unlimited/Developer Edition
+compatibility: Salesforce Revenue Cloud, API v68.0+, Enterprise/Unlimited/Developer Edition
 metadata:
-  version: 1.0.0
+  version: 2.0.0
   author: skunkworks-rca
 ---
 
@@ -25,8 +25,12 @@ metadata:
 | Full-text or faceted search | `POST /connect/cpq/products/search` |
 | Guided selection (Q&A product matching) | `POST /connect/cpq/products/guided-selection` |
 | Run qualification procedure on product IDs | `POST /connect/cpq/qualification` |
+| Get product recommendations (Constraint Rule Engine) | `POST /revenue/product-discovery/products/recommendations` |
 
-All APIs are composite POST APIs. All available from API v60.0 unless noted.
+All APIs are composite POST APIs. All available from API v60.0 unless noted. The product
+recommendations endpoint is a `/revenue/...` resource (not `/connect/cpq/...`) — it backs the
+**Get Product Recommendations Action** standard invocable action (see
+`references/product-discovery-invocable-actions.md`).
 
 ### Step 2: Request body structure
 
@@ -197,13 +201,17 @@ Cause: Product Catalog Management is not enabled in the org.
 Solution: Enable via Setup → Revenue Cloud → Product Catalog Management → Enable. Then deploy `ProductCatalogManagementSettings` metadata.
 
 ### Index rebuild does not trigger after catalog changes
-Cause: `RuntimeCatalogIndexSetting` record not created, or the catalog data changes were made after the last index build.
-Solution: Create a `RuntimeCatalogIndexSetting` record with `CatalogId` pointing to your catalog — this triggers an automatic index rebuild. You can also trigger manually:
-```bash
-sf data create record --sobject RuntimeCatalogIndexSetting \
-  --values "CatalogId=0ZSxx..." --target-org <alias>
+Cause: No index build has been triggered since the catalog data changes were made.
+Solution: Trigger a build via the PCM index API:
 ```
-Or via API: `POST /commerce/management/catalogs/{id}/index`. Poll `GET /commerce/management/catalogs/{id}/indexStatus` until `lastBuildStatus = COMPLETED`.
+POST /connect/pcm/index/deploy
+```
+Poll the response/`GET /connect/pcm/index/snapshots` until `indexBuildStatus = COMPLETED`. Adjust
+indexing behavior (e.g., what gets indexed, incremental vs. full) via `GET`/`PATCH /connect/pcm/index/setting`.
+*Annotated (v68 re-baseline):* the previous guidance to create a `RuntimeCatalogIndexSetting`
+record with a `CatalogId` field is not supported by the v68 guide — no such sObject appears in the
+PCM Standard Objects section (Ch.4, printed pp.70–118), and `POST /commerce/management/catalogs/{id}/index`
+is not a documented v68 resource path (PCM uses `/connect/pcm/...`, not `/commerce/...`).
 
 ### getSessionId() returns null in Agentforce execution context
 Cause: When Apex runs inside a GenAiFunction invoked by an Agentforce agent, `UserInfo.getSessionId()` returns null — HTTP callouts to `/connect/cpq/` endpoints cannot be authenticated.
@@ -211,7 +219,7 @@ Solution: Use SOQL directly against `Product2`, `ProductClassificationAttr`, `At
 
 ### No products returned despite correct catalogId
 Cause: Product index not built or stale.
-Solution: Rebuild the index — `POST /commerce/management/catalogs/{id}/index` or use the Runtime Catalog Index Settings record. Check `lastBuildStatus: IN_PROGRESS | FAILED | COMPLETED`.
+Solution: Rebuild the index — `POST /connect/pcm/index/deploy`. Check `indexBuildStatus: IN_PROGRESS | FAILED | COMPLETED | COMPLETED_WITH_ERRORS` in the response, or inspect `GET /connect/pcm/index/error` for failure detail.
 
 ### `enablePricing: true` but `prices` is empty
 Cause: The **Pricing Procedure** toggle in Setup → Product Discovery Settings is disabled, which overrides the API parameter.
@@ -283,6 +291,7 @@ Response includes attributes, hierarchy, cardinality, and price data.
 
 | Version | Date | Change |
 |---|---|---|
+| 2.0.0 | 2026-09-11 | v68.0 (Winter '27) re-baseline: bumped compatibility to v68.0+; replaced unverified `RuntimeCatalogIndexSetting`/`/commerce/management/...` index guidance with the documented `/connect/pcm/index/*` resources; corrected Chapter citation (Product Discovery is a section of Chapter 4, not Chapter 5) and moved to section-title citations; noted `executeConfigurationRules`/`transactionContextId`/`transactionId` (v67.0+) fields now covered in `product-discovery-api-patterns.md` |
 | 1.1.0 | 2026-05-02 | Added See Also table; added Setup-level Common Issues (PCM not enabled, RuntimeCatalogIndexSetting, getSessionId null) |
 | 1.0.0 | 2026-04-29 | Initial skill — 9 /connect/cpq/ endpoints, guided selection, bulk product details, qualification, metadata types |
 
@@ -291,5 +300,5 @@ Response includes attributes, hierarchy, cardinality, and price data.
 ## References
 - See `references/product-discovery-api-patterns.md` for full request/response body examples for every endpoint
 - See `references/product-discovery-invocable-actions.md` for all Standard Invocable Actions
-- RLM Developer Guide v66.0, Chapter 5: Product Discovery (p. 279)
-- Metadata API: ProductSpecificationType, ProductSpecificationRecType, ProductCatalogManagementSettings (p. 267–278)
+- RLM Developer Guide (v68, Winter '27) — Chapter 4: Product Catalog Management › Product Discovery › Business APIs
+- RLM Developer Guide (v68, Winter '27) — Chapter 4: Product Catalog Management › Product Discovery › Metadata API Types: ProductSpecificationType, ProductSpecificationRecType, ProductCatalogManagementSettings

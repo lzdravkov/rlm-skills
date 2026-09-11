@@ -1,9 +1,9 @@
 ---
 name: rlm-product-configurator
-description: Save and read product attribute configurations on Revenue Cloud quotes and orders using the Place Sales Transaction (PST) API, including BOM bundle rule application and CML constraint rules (RLM v66). Use when configuring attributes on QuoteLineItems or OrderItems, applying BOM rules, or working with PlaceSalesTransactionExecutor. Do NOT use for product catalog setup (use rlm-product-catalog) or pricing-only changes (use rlm-pricing). Triggers on: "configure product", "save configuration", "product attributes", "attribute values", "BOM", "bundle rules", "PST", "Place Sales Transaction", "PlaceSalesTransactionExecutor", "config rules", "constraint model", "QuoteLineItemAttribute".
-compatibility: Salesforce Revenue Cloud, API v66.0+, Enterprise/Unlimited/Developer Edition
+description: Save and read product attribute configurations on Revenue Cloud quotes and orders using the Place Sales Transaction (PST) API, including BOM bundle rule application and CML constraint rules (RLM v68). Use when configuring attributes on QuoteLineItems or OrderItems, applying BOM rules, or working with PlaceSalesTransactionExecutor. Do NOT use for product catalog setup (use rlm-product-catalog) or pricing-only changes (use rlm-pricing). Triggers on: "configure product", "save configuration", "product attributes", "attribute values", "BOM", "bundle rules", "PST", "Place Sales Transaction", "PlaceSalesTransactionExecutor", "config rules", "constraint model", "QuoteLineItemAttribute".
+compatibility: Salesforce Revenue Cloud (Revenue Management), API v68.0+, Enterprise/Unlimited/Developer Edition
 metadata:
-  version: 1.0.0
+  version: 2.0.0
   author: skunkworks-rca
 ---
 
@@ -34,6 +34,18 @@ List<QuoteLineItemAttribute> attrs = [
 
 For a human-readable summary, format as: `"AttributeName: Value (PicklistLabel)"`.
 
+> **Annotation (unverified field, v68):** `Sequence__c` reads as an org-specific custom
+> field — the `__c` suffix means it isn't a guaranteed standard field. The v68 Product Catalog
+> Management standard-object fields (Ch.4, printed p.119) do not show a standard `Sequence`
+> field on `AttributeDefinition` itself; the closest confirmed standard ordering field in the
+> same chapter is `ProductClassificationAttr.Sequence` (int — "The display sequence of the
+> attribute when configuring the product during run time"), which orders attributes at the
+> classification level rather than on the queried `QuoteLineItemAttribute.AttributeDefinition`
+> relationship. If your org queries `AttributeDefinition.Sequence__c` today, confirm it's a
+> real field in your org (it may be a legacy/managed-package field not documented in Ch.4) —
+> otherwise consider ordering via the `ProductClassificationAttr` relationship or dropping the
+> `ORDER BY` and sorting client-side by `ProductClassificationAttr.Sequence`.
+
 ### Step 3: Save attributes via PST API (ONLY correct path for BOM changes)
 `PlaceSalesTransactionExecutor` is the only API that atomically:
 1. Saves `QuoteLineItemAttribute` records
@@ -42,23 +54,58 @@ For a human-readable summary, format as: `"AttributeName: Value (PicklistLabel)"
 
 **Never use standard DML** on `QuoteLineItemAttribute` — it fails with "Argument must be of internal sObject type".
 
+> **Corrected for v68 (RLM Developer Guide, Chapter 8 › RevSalesTrxn Namespace, printed
+> p.1737):** the `RevSalesTrxn` namespace does **not** contain `SalesTransactionGraph`,
+> `SalesTransactionMode`, `SalesTransactionQuote`, `SalesTransactionItem`, or
+> `SalesTransactionAttribute` — none of those classes/enums exist in the documented v68
+> namespace class list. The real graph is built from `RecordResource` +
+> `RecordWithReferenceRequest` objects wrapped in a `GraphRequest`, and `execute()` takes a
+> `PricingPreferenceEnum`, a `ConfigurationExecutionEnum`, and a typed
+> `ConfigurationOptionsInput` (Boolean properties `addDefaultConfiguration`,
+> `executeConfigurationRules`, `validateAmendRenewCancel`, `validateProductCatalog` — there is
+> no `applyBomRules`/`applyPricing` map). The pattern below is adapted from the guide's own
+> `PlaceSalesTransactionTest` worked example (printed pp.1751–1756).
+
 ```apex
-// Build the PST graph
-RevSalesTrxn.SalesTransactionGraph graph = new RevSalesTrxn.SalesTransactionGraph();
-// ... populate graph with quote + line item + attributes
+// Build one RecordResource per QuoteLineItemAttribute to create/update, wrap each in a
+// RecordWithReferenceRequest, and collect them into a single GraphRequest.
+List<RevSalesTrxn.RecordWithReferenceRequest> records = new List<RevSalesTrxn.RecordWithReferenceRequest>();
+Integer refIdx = 0;
+for (AttributeInput attr : attributeInputs) {
+    RevSalesTrxn.RecordResource attrResource =
+        new RevSalesTrxn.RecordResource(QuoteLineItemAttribute.getSobjectType(), 'POST');
+    Map<String, Object> fieldValues = new Map<String, Object>();
+    fieldValues.put('QuoteLineItemId', quoteLineItemId);
+    fieldValues.put('AttributeValue', attr.value);
+    if (attr.dataType == 'Picklist') {
+        // Both fields are required for Picklist types — see Step 5.
+        fieldValues.put('AttributePicklistValueId', attr.picklistValueId);
+    }
+    attrResource.fieldValues = fieldValues;
+    records.add(new RevSalesTrxn.RecordWithReferenceRequest('refAttr' + refIdx, attrResource));
+    refIdx++;
+}
 
-Map<String, Object> configOptions = new Map<String, Object>();
-configOptions.put('applyBomRules', true);
-configOptions.put('applyPricing', true);
+RevSalesTrxn.GraphRequest graphRequest = new RevSalesTrxn.GraphRequest('attrGraph', records);
 
-RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
-    graph,
-    RevSalesTrxn.SalesTransactionMode.SYSTEM,
-    RevSalesTrxn.SalesTransactionMode.SYSTEM,
+RevSalesTrxn.ConfigurationOptionsInput configOptions = new RevSalesTrxn.ConfigurationOptionsInput();
+configOptions.executeConfigurationRules = true;  // adhere to BOM/config rules
+configOptions.validateProductCatalog    = true;
+configOptions.addDefaultConfiguration   = false;
+configOptions.validateAmendRenewCancel  = false;
+
+RevSalesTrxn.PlaceSalesTransactionResponse response = RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
+    graphRequest,
+    RevSalesTrxn.PricingPreferenceEnum.SYSTEM,
+    RevSalesTrxn.ConfigurationExecutionEnum.SYSTEM,
     configOptions,
-    null
+    null   // contextId — not required when starting a new transaction
 );
 ```
+> Field names on `QuoteLineItemAttribute` (`QuoteLineItemId`, `AttributeValue`,
+> `AttributePicklistValueId`) match the existing skill assumptions and Step 5's payload rule;
+> they were not independently re-verified against the Ch.8 Transaction Management field list in
+> this pass — confirm against your org if you see field-not-found errors.
 
 ### Step 4: Two-step PST sequencing (CRITICAL for mixed attribute types)
 When saving both Number attributes (e.g., `requiredKW`) and Picklist attributes (e.g., `DutyRating`) in a single transaction, a conflict occurs: the Picklist's BOM rules lock the component structure, preventing the Number attribute from swapping components.
@@ -87,22 +134,36 @@ Database.deleteImmediate(oldAttrList);
 ```
 
 ### Step 7: Config Rules without saving (Run Config Rules Action)
-Use the `Run Config Rules Action` invocable action in a Flow when you only need to evaluate rules and get eligibility results without committing changes:
+Use the `Run Config Rules Action` standard invocable action in a Flow when you only need to evaluate rules and get eligibility results without committing changes. Confirmed against v68 (RLM Developer Guide, Chapter 7 › Run Config Rules Action, printed p.1088; URI `/services/data/v68.0/actions/standard/runConfigRules`):
 
-Input: `quoteId`, `quoteLineItemId`, list of proposed attribute values
-Output: `configResults` with valid/invalid attribute values, constraint violations
+Input: `transactionContextId`, `transactionId`
+Output: `configRuleResult` (Apex-defined type `runtime_industries_cpq.ConfigRuleResult`), `transactionContextId`
+
+> **Corrected for v68:** the action does not take `quoteId`/`quoteLineItemId`/a list of proposed
+> attribute values as inputs, and its output field is `configRuleResult`, not `configResults`.
+> The transaction context (quote, line item, and proposed attribute values) is resolved from
+> the `transactionContextId`/`transactionId` inputs rather than passed directly.
 
 This does NOT update BOM or prices. Use PST for full save.
 
 ### Step 8: Constraint Modeling Language (CML)
-CML is a declarative rule language for expressing product configuration constraints without Apex. Key concepts:
+CML is a declarative rule language for expressing product configuration constraints without Apex. It's authored as `type`/`relation` declarations plus function-style rule statements (confirmed against v68, RLM Developer Guide, Chapter 7 › Constraint Modeling Language › Core Concepts, printed pp.1093–1146). Key rule keywords:
 
-- **Requires**: If attribute A = X, then attribute B must = Y
-- **Excludes**: Attribute A = X is incompatible with attribute B = Y
-- **Ranges**: Number attribute must be between min/max
-- **Defaults**: Set default value for an attribute based on context
+- **`require(condition, relation[type]{...}, message)`**: Forces a component/attribute state into the relationship when the condition is met
+- **`exclude(...)`**: Automatically removes a type from a relationship when a condition is true (the one rule type allowed to override a user's prior selection)
+- **`constraint(condition, message)`**: Validates a logical condition; displays an error if it can't be satisfied
+- **Ranges**: expressed as a variable domain, e.g. `int requiredKW = [100..3000];`, not a separate `RANGE` block
+- **`setdefault(condition, expression, message)`**: Sets a default value/selection when the condition is met
+- **`preference(condition, message)`**: Encourages (but doesn't enforce) a condition
+- **`recommend`**: Surfaces a suggested product/relation to the user
 
-CML rules are stored in `ProductConfigurationRule` records and evaluated by the configurator engine at runtime. See `references/cml-patterns.md` for examples.
+> **Corrected for v68:** the previous `REQUIRES`/`EXCLUDES`/`RANGE`/`DEFAULT`/`VISIBLE` uppercase
+> block-keyword syntax shown in earlier revisions of this skill does not match any CML syntax
+> found in the v68 guide. CML in v68 is function-call style (lowercase keywords, parentheses),
+> declared inside `type`/`relation` blocks. See `references/cml-patterns.md` for corrected,
+> doc-grounded examples.
+
+CML rules are stored in `ProductConfigurationRule` records (`ConfigurationRuleDefinition` textarea field holds the rule text) and evaluated by the configurator engine at runtime. See `references/cml-patterns.md` for examples.
 
 ### Step 9: Object deployment sequence
 ```
@@ -115,8 +176,8 @@ CML rules are stored in `ProductConfigurationRule` records and evaluated by the 
 ## Common Issues
 
 ### PST returns internalSuccess: true but BOM not updated
-Cause: `applyBomRules` option not set, or attributes submitted in conflicting order (Number + Picklist in same call).
-Solution: Set `applyBomRules: true` in configOptions. Use two-step sequencing for mixed attribute types.
+Cause: `ConfigurationOptionsInput.executeConfigurationRules` not set to `true`, or attributes submitted in conflicting order (Number + Picklist in same call).
+Solution: Set `executeConfigurationRules = true` on the `ConfigurationOptionsInput` passed to `PlaceSalesTransactionExecutor.execute()`. Use two-step sequencing for mixed attribute types.
 
 ### QuoteLineItemAttribute insert fails
 Cause: Standard DML (`insert attrList`) used instead of `Database.insertImmediate()`.
@@ -150,8 +211,8 @@ User says: "Set requiredKW to 1500 and DutyRating to DCC"
 6. Report: configuration saved, BOM = N components, Unit Price = $X, Grand Total = $Y
 
 ### Example 3: Check if a configuration is valid before saving
-1. Call `Run Config Rules Action` invocable with proposed attribute values
-2. Check `configResults` for violations
+1. Call `Run Config Rules Action` invocable with `transactionContextId`/`transactionId`
+2. Check `configRuleResult` for violations
 3. Report any constraint failures to the user before committing
 
 ## See Also
@@ -168,6 +229,7 @@ User says: "Set requiredKW to 1500 and DutyRating to DCC"
 
 | Version | Date | Change |
 |---|---|---|
+| 2.0.0 | 2026-09-11 | v68 (Winter '27) re-baseline: corrected PST Apex pattern to the real `RevSalesTrxn` namespace (`GraphRequest`/`RecordResource`/`RecordWithReferenceRequest`/`ConfigurationOptionsInput`/`PricingPreferenceEnum`/`ConfigurationExecutionEnum` — the previous `SalesTransactionGraph`/`SalesTransactionMode`/map-based `configOptions` pattern does not exist in the documented namespace); corrected `Run Config Rules Action` inputs/outputs; corrected CML rule syntax to the documented function-call style (`require()`/`exclude()`/`constraint()`/`setdefault()`/`preference()`); corrected `ProductConfigurationRule` field reference; annotated `AttributeDefinition.Sequence__c` as unverified; replaced page-number citations with section-title citations |
 | 1.2.0 | 2026-05-02 | Added See Also table; added scripts/pst-template-order.cls for Order/OrderItem variant |
 | 1.1.0 | 2026-04-30 | Added two-step PST sequencing (fix for Number+Picklist conflict); added scripts/pst-template.cls |
 | 1.0.0 | 2026-04-01 | Initial skill — PST API, QuoteLineItemAttribute DML rules, CML patterns |
@@ -180,5 +242,6 @@ User says: "Set requiredKW to 1500 and DutyRating to DCC"
 - See `references/pst-two-step-pattern.md` for PST sequencing and all critical patterns
 - See `scripts/pst-template.cls` for a drop-in Apex starting point for Quote/QuoteLineItem — copy, rename, implement `buildGraph()`, done
 - See `scripts/pst-template-order.cls` for the Order/OrderItem variant — used for asset amendment workflows
-- RLM Developer Guide Chapter 7: Product Configurator (p. 874)
-- RLM Developer Guide: Constraint Modeling Language (p. 993)
+- RLM Developer Guide (v68.0, Winter '27) — Chapter 7: Product Configurator › Standard Objects, Business APIs, Std Invocable Actions
+- RLM Developer Guide (v68.0, Winter '27) — Chapter 7: Product Configurator › Constraint Modeling Language (CML) › Core Concepts
+- RLM Developer Guide (v68.0, Winter '27) — Chapter 8: Transaction Management › RevSalesTrxn Namespace

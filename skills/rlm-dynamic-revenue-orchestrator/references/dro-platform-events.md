@@ -1,6 +1,6 @@
 # DRO — Platform Events Reference
 
-Both events are available from API v66.0 and support the same subscriber types.
+Both events are available from API v66.0 and support the same subscriber types. This remains accurate under the v68.0 baseline used by this skill — confirmed against RLM Developer Guide, Ch.10 Dynamic Revenue Orchestrator › Dynamic Revenue Orchestrator Platform Events, printed pp. 1984–1985. Field names and subscriber support below (`Apex Triggers`/`Flows`/`Pub/Sub API`/`Streaming API` ✓, `Processes` ✗) match the guide exactly — no corrections needed to this section beyond the `FulfillmentStep` field name used in the trigger example below.
 
 **Supported subscribers:** Apex Triggers ✓, Flows ✓, Processes ✗, Pub/Sub API ✓, Streaming API ✓
 
@@ -31,16 +31,18 @@ trigger FulfillmentSourceChangeTrigger on FulfillmentSourceChangeEvent (after in
     }
 
     // Query current state of affected steps
+    // Corrected: the real field is `State`, not `Status` (source: RLM Developer Guide,
+    // Ch.10 DRO Standard Objects › FulfillmentStep)
     Map<Id, FulfillmentStep> steps = new Map<Id, FulfillmentStep>([
-        SELECT Id, Status, FulfillmentPlanId, FulfillmentStepDefinition.Name
+        SELECT Id, State, FulfillmentPlanId, FulfillmentStepDefinition.Name
         FROM FulfillmentStep
         WHERE Id IN :changedStepIds
     ]);
 
     for (FulfillmentStep step : steps.values()) {
-        if (step.Status == 'Failed') {
+        if (step.State == 'Failed' || step.State == 'FatallyFailed') {
             // Create a case, send an alert, trigger retry
-        } else if (step.Status == 'Completed') {
+        } else if (step.State == 'Completed') {
             // Advance to next step, notify downstream systems
         }
     }
@@ -69,7 +71,7 @@ Published when a sales transaction decomposition job completes or fails. Decompo
 | `EventUuid` | String | Platform-generated unique ID |
 | `ReplayId` | String | CometD replay ID |
 | `SalesTransactionIdentifier` | String | ID of the sales transaction (Quote or Order) being decomposed |
-| `Status` | String | `Completed` \| `Failed` |
+| `Status` | String | `Completed` \| `Failed` *(annotated: the guide types this field as plain `string`, not a formally enumerated picklist, and its field-reference table doesn't itself enumerate valid values — `Completed`/`Failed` are the practically-observed values but aren't a schema-guaranteed closed set)* |
 | `ErrorCode` | String | Error code if Status = `Failed`; null if Completed |
 
 ### Apex Trigger Example
@@ -137,7 +139,7 @@ Map<String, String> replayOptions = new Map<String, String>{
 const CometD = require('cometd');
 const cometd = new CometD.CometD();
 
-cometd.configure({ url: instanceUrl + '/cometd/66.0/', requestHeaders: { Authorization: 'Bearer ' + accessToken } });
+cometd.configure({ url: instanceUrl + '/cometd/68.0/', requestHeaders: { Authorization: 'Bearer ' + accessToken } });
 
 cometd.handshake((handshakeReply) => {
     if (handshakeReply.successful) {

@@ -1,6 +1,6 @@
 # Revenue Cloud — End-to-End Workflow Guide
 
-This guide shows how the 11 RLM skills map to the full quote-to-cash lifecycle.
+This guide shows how the 13 RLM skills map to the full quote-to-cash lifecycle.
 Each box names the skill responsible. Arrows show data flow and dependencies.
 
 ---
@@ -96,8 +96,8 @@ Each box names the skill responsible. Arrows show data flow and dependencies.
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  STEP 6: ORDER CREATION                     skill: rlm-transaction-management │
 │                                                                            │
-│  • Convert approved quote to order: Create Order From Quote Action         │
-│  • POST /commerce/orders/fromQuote                                         │
+│  • Convert approved quote to order: Create Orders From Quote Action        │
+│  • POST .../actions/standard/createOrdersFromQuote                         │
 │  • Platform event: PlaceOrderCompletedEvent                                │
 │  • Platform event: SalesTrxnDecompositionEvent → triggers DRO              │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -106,17 +106,17 @@ Each box names the skill responsible. Arrows show data flow and dependencies.
           ▼                                          ▼
 
 ┌─────────────────────────────┐       ┌────────────────────────────────────┐
-│  STEP 7A: FULFILLMENT        │       │  STEP 7B: USAGE GRANT PROVISIONING │
-│  skill: rlm-dynamic-revenue- │       │  skill: rlm-usage-management       │
-│  orchestrator                │       │                                    │
-│                              │       │  • TransactionUsageEntitlement      │
-│  • FulfillmentPlan created   │       │    created from order line item     │
-│  • FulfillmentStep[] execute │       │  • UsageEntitlementAccount +        │
-│  • Callout types:            │       │    UsageEntitlementBucket created   │
-│    StandardFulfillmentProvider│      │  • DrawdownOrder: ExpiringFirst     │
-│    ApexTypeProvider           │      │    (recommended) or GrantedFirst    │
-│    ExternalServicesProvider   │      │  • Overage policy enforced          │
-│  • 202 = async, 200 = done   │       │    at consumption time              │
+│  STEP 7A: FULFILLMENT       │       │  STEP 7B: USAGE GRANT PROVISIONING │
+│  skill: rlm-dynamic-revenue-│       │  skill: rlm-usage-management       │
+│  orchestrator               │       │                                    │
+│                             │       │  • TransactionUsageEntitlement     │
+│  • FulfillmentPlan created  │       │    created from order line item    │
+│  • FulfillmentStep[] execute│       │  • UsageEntitlementAccount +       │
+│  • Callouts wired via       │       │    UsageEntitlementBucket created  │
+│    IntegrationProviderDef   │       │  • Drawdown order is internal      │
+│    (HTTP / Apex / ExtSvc)   │       │    (no DrawdownOrder field in v68) │
+│  • State → InProgress then  │       │  • Overage: OverageChargeable=Yes  │
+│    Completed (202 = async)  │       │    (no OverageType field)          │
 └─────────────────────────────┘       └────────────────────────────────────┘
 
                               │

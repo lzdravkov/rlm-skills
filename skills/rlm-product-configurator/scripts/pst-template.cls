@@ -3,18 +3,19 @@
  *
  * Drop-in starting point for saving QuoteLineItemAttribute records via
  * PlaceSalesTransactionExecutor (PST). Handles the two-step sequencing
- * required to avoid the BOM-lock silent-override bug (RLM v66.0).
+ * required to avoid the BOM-lock silent-override bug (RLM v68.0).
  *
  * Usage:
  *   1. Copy this file into your Apex classes directory.
  *   2. Rename the class to match your service (e.g. ProductAttributeSaveService).
- *   3. Implement buildQuoteLineItemNode() using your org's graph structure.
+ *   3. Implement buildGraph() using your org's graph structure.
  *   4. Wire up an @InvocableMethod wrapper (see SaveRequest / SaveResult below).
  *
  * References:
  *   - skills/rlm-product-configurator/references/pst-two-step-pattern.md
  *   - skills/rlm-product-configurator/references/pst-api-patterns.md
- *   - RLM Developer Guide v66.0, Chapter 8 (RevSalesTrxn namespace, p.1615)
+ *   - RLM Developer Guide (v68.0, Winter '27) — Chapter 8: Transaction Management ›
+ *     RevSalesTrxn Namespace, printed p.1737
  */
 public class PstExecutorTemplate {
 
@@ -109,6 +110,13 @@ public class PstExecutorTemplate {
 
     // ---------------------------------------------------------------------------
     // PST executor
+    //
+    // Corrected for v68 (RLM Developer Guide, Chapter 8 › RevSalesTrxn Namespace, printed
+    // p.1737): there is no `SalesTransactionGraph`/`SalesTransactionMode` in the documented
+    // v68 namespace. `execute()` takes a `GraphRequest`, a `PricingPreferenceEnum`, a
+    // `ConfigurationExecutionEnum`, and a typed `ConfigurationOptionsInput` (not a Map).
+    // Adapted from the guide's `PlaceSalesTransactionTest.callPSTAPI_Post()` worked example
+    // (printed pp.1751-1756).
     // ---------------------------------------------------------------------------
 
     private static void executePst(
@@ -116,20 +124,19 @@ public class PstExecutorTemplate {
         String quoteLineItemId,
         List<AttributeInput> attrs
     ) {
-        RevSalesTrxn.SalesTransactionGraph graph =
+        RevSalesTrxn.GraphRequest graphRequest =
             buildGraph(quoteId, quoteLineItemId, attrs);
 
-        Map<String, Object> configOptions = new Map<String, Object>{
-            'applyBomRules' => true,
-            'applyPricing'  => true
-        };
+        RevSalesTrxn.ConfigurationOptionsInput configOptions = new RevSalesTrxn.ConfigurationOptionsInput();
+        configOptions.executeConfigurationRules = true;  // adhere to BOM/config rules
+        configOptions.validateProductCatalog    = true;
 
-        RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
-            graph,
-            RevSalesTrxn.SalesTransactionMode.SYSTEM,
-            RevSalesTrxn.SalesTransactionMode.SYSTEM,
+        RevSalesTrxn.PlaceSalesTransactionResponse response = RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
+            graphRequest,
+            RevSalesTrxn.PricingPreferenceEnum.SYSTEM,
+            RevSalesTrxn.ConfigurationExecutionEnum.SYSTEM,
             configOptions,
-            null
+            null   // contextId — not required when starting a new transaction
         );
     }
 
@@ -142,45 +149,37 @@ public class PstExecutorTemplate {
     //   - For Picklist attributes: set BOTH AttributeValue (display text) AND
     //     AttributePicklistValueId. Missing either causes a silent revert.
     //   - For Number attributes: set AttributeValue as a stringified decimal.
-    //   - The graph must include the Quote node, the QuoteLineItem node, and
-    //     one QuoteLineItemAttribute node per attribute being saved.
+    //   - Build one RecordResource per QuoteLineItemAttribute to create, wrap each in a
+    //     RecordWithReferenceRequest, and collect into a single GraphRequest.
     //
-    // See: RLM Developer Guide v66.0, Chapter 8, RevSalesTrxn namespace, p.1615
+    // See: RLM Developer Guide (v68.0, Winter '27) — Chapter 8: Transaction Management ›
+    // RevSalesTrxn Namespace, printed p.1737
     // ---------------------------------------------------------------------------
 
     @TestVisible
-    private static RevSalesTrxn.SalesTransactionGraph buildGraph(
+    private static RevSalesTrxn.GraphRequest buildGraph(
         String quoteId,
         String quoteLineItemId,
         List<AttributeInput> attrs
     ) {
-        RevSalesTrxn.SalesTransactionGraph graph =
-            new RevSalesTrxn.SalesTransactionGraph();
+        List<RevSalesTrxn.RecordWithReferenceRequest> records =
+            new List<RevSalesTrxn.RecordWithReferenceRequest>();
 
-        // TODO: Add Quote node
-        // RevSalesTrxn.SalesTransactionQuote quoteNode = new RevSalesTrxn.SalesTransactionQuote();
-        // quoteNode.record = new Quote(Id = quoteId);
-        // graph.quote = quoteNode;
-
-        // TODO: Add QuoteLineItem node
-        // RevSalesTrxn.SalesTransactionItem lineItemNode = new RevSalesTrxn.SalesTransactionItem();
-        // lineItemNode.record = new QuoteLineItem(Id = quoteLineItemId);
-
-        // TODO: Add QuoteLineItemAttribute nodes
+        // TODO: Add one RecordResource per QuoteLineItemAttribute to save
+        // Integer refIdx = 0;
         // for (AttributeInput attr : attrs) {
-        //     RevSalesTrxn.SalesTransactionAttribute attrNode =
-        //         new RevSalesTrxn.SalesTransactionAttribute();
-        //     QuoteLineItemAttribute qlia = new QuoteLineItemAttribute();
-        //     qlia.QuoteLineItemId         = quoteLineItemId;
-        //     qlia.AttributeValue          = attr.value;
-        //     // For Picklist: also set qlia.AttributePicklistValueId = attr.picklistValueId;
-        //     attrNode.record = qlia;
-        //     lineItemNode.attributes.add(attrNode);
+        //     RevSalesTrxn.RecordResource attrResource =
+        //         new RevSalesTrxn.RecordResource(QuoteLineItemAttribute.getSobjectType(), 'POST');
+        //     Map<String, Object> fieldValues = new Map<String, Object>();
+        //     fieldValues.put('QuoteLineItemId', quoteLineItemId);
+        //     fieldValues.put('AttributeValue', attr.value);
+        //     // For Picklist: also set fieldValues.put('AttributePicklistValueId', attr.picklistValueId);
+        //     attrResource.fieldValues = fieldValues;
+        //     records.add(new RevSalesTrxn.RecordWithReferenceRequest('refAttr' + refIdx, attrResource));
+        //     refIdx++;
         // }
 
-        // graph.items = new List<RevSalesTrxn.SalesTransactionItem>{ lineItemNode };
-
-        return graph;
+        return new RevSalesTrxn.GraphRequest('attrGraph', records);
     }
 
     // ---------------------------------------------------------------------------

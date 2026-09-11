@@ -1,7 +1,7 @@
 # Revenue Cloud Deployment — CLI Runbook
 
 CLI: Salesforce CLI v2 (`sf` commands only — never `sfdx`)
-API Version: 66.0
+API Version: 68.0
 Target org alias: set via `--target-org <alias>`
 
 ---
@@ -15,8 +15,8 @@ sf org display --target-org <alias>
 # Confirm API version
 sf config get apiVersion
 
-# Verify you are on API v66.0
-# If not: sf config set apiVersion=66.0
+# Verify you are on API v68.0
+# If not: sf config set apiVersion=68.0
 ```
 
 ---
@@ -134,10 +134,16 @@ sf data query \
 
 ```bash
 # Rebuild product index
-sf data create record \
-  --sobject RuntimeCatalogIndexSetting \
-  --values "RebuildIndex=true" \
+# NOTE (v68 correction): RuntimeCatalogIndexSetting is a real standard object
+# (Object Deployment Sequence 35 in the PCM Object Deployment Reference), but
+# it's marked "Internal" — internal objects aren't accessible via the Data API,
+# so `sf data create record` against it will fail. Trigger the rebuild via the
+# PCM Business API instead:
+sf api request rest /connect/pcm/index/deploy \
+  --method POST \
   --target-org <alias>
+
+# Or manually: Setup → Revenue Cloud → Product Discovery → Rebuild Index
 
 # Verify no failed flows
 sf data query \

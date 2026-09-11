@@ -20,6 +20,11 @@
  *   - Always run DRY_RUN first.
  *   - Never run on a production org without confirming in sandbox first.
  *   - This script respects governor limits (max 10k records per run).
+ *
+ * v68 verification note: this script is object-agnostic (OBJECT_TO_ROLLBACK is
+ * operator-supplied) and relies only on the org-specific GUID__c external ID
+ * convention described in guid-patterns.md — no RLM Developer Guide sObject/field
+ * names are hardcoded here, so there's nothing version-specific to re-verify for v68.
  */
 
 // ── CONFIGURATION ─────────────────────────────────────────────────────────────

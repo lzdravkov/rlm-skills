@@ -8,6 +8,11 @@
  * Prerequisites:
  *   - GUID__c field must already exist on each object (Text 255, Unique, External ID)
  *   - Run in batches if orgs have >10k records per object (see note below)
+ *
+ * v68 verification note: every sObject API name in the objectNames list below was
+ * checked against the RLM Developer Guide (v68.0, Winter '27) Chapter 3 Object
+ * Deployment Reference (Product Catalog Management Objects, Salesforce Pricing
+ * Objects, Usage Management Objects) and confirmed unchanged in v68.0.
  */
 
 // UUID v4 generator — pure Apex, no callouts required

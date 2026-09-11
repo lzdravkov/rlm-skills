@@ -7,6 +7,16 @@
  *   sf apex run --file skills/rlm-deployment/scripts/verify-deployment.apex --target-org <alias>
  *
  * Each check logs PASS or FAIL with details. Review the debug output after execution.
+ *
+ * v68 verification note: all sObject API names referenced below (ProductSellingModel,
+ * Pricebook2, PriceBookEntry, ProductCatalog, ProductCategory, AttributeDefinition,
+ * Product2, UsageResource, FulfillmentStepDefinition) were confirmed against the RLM
+ * Developer Guide (v68.0, Winter '27) Chapter 3 Object Deployment Reference. The
+ * RevenueManagementSettings query below was corrected — it's a Settings metadata
+ * type queried without a __c suffix (see fix below). ProductAttributeSaveService and
+ * EnsureOpportunityService are org-specific custom Apex classes, not documented in
+ * the RLM Developer Guide — unverifiable against the guide; confirm these exist in
+ * your target org's codebase before relying on this check.
  */
 
 Integer passCount = 0;
@@ -24,12 +34,16 @@ void check(String label, Boolean condition, String failDetail) {
 }
 
 // ── 1. RevenueManagementSettings ─────────────────────────────────────────────
-List<RevenueManagementSettings__c> rmsList = [
-    SELECT enableCoreCPQ__c, enableTransactionProcessor__c, enableRevUnifiedSetup__c
-    FROM RevenueManagementSettings__c LIMIT 1
+// CORRECTED for v68: RevenueManagementSettings is a Settings metadata type
+// (extends Metadata), not a custom object — it's queried WITHOUT the __c
+// suffix on either the type name or its fields. Verified against RLM
+// Developer Guide (v68.0) Chapter 2: RevenueManagementSettings > Fields.
+List<RevenueManagementSettings> rmsList = [
+    SELECT enableCoreCPQ, enableTransactionProcessor, enableRevUnifiedSetup
+    FROM RevenueManagementSettings LIMIT 1
 ];
 check('RevenueManagementSettings record exists', !rmsList.isEmpty(),
-    'RevenueManagementSettings__c has no records — deploy settings file first');
+    'RevenueManagementSettings has no records — deploy settings file first');
 
 // ── 2. Active Product Selling Model ──────────────────────────────────────────
 Integer psmCount = [SELECT COUNT() FROM ProductSellingModel WHERE IsActive = true];

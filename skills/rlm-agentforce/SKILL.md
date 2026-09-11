@@ -1,9 +1,9 @@
 ---
 name: rlm-agentforce
 description: Build and configure Salesforce Agentforce agents integrated with Revenue Cloud (RLM). Use when creating GenAiFunctions, GenAiPlugins (topics), BotVersion planner bundles, wiring invocable actions to agent topics, handling multi-turn email agent sessions, or debugging agent execution failures. Do NOT use for standard Flow authoring (use rlm-transaction-management) or product catalog setup (use rlm-product-catalog). Triggers on: "Agentforce", "GenAiFunction", "GenAiPlugin", "BotVersion", "planner bundle", "agent topic", "agent action", "generateAiAgentResponse", "sessionId", "lightning:type", "InvocableMethod", "agent context", "email agent", "guided selling agent", "NGA", "legacy bot".
-compatibility: Salesforce Revenue Cloud, API v66.0+, Agentforce (Einstein Platform), Enterprise/Unlimited/Developer Edition
+compatibility: Salesforce Revenue Cloud, API v68.0+, Agentforce (Einstein Platform), Enterprise/Unlimited/Developer Edition
 metadata:
-  version: 1.0.0
+  version: 2.0.0
   author: skunkworks-rca
 ---
 
@@ -176,6 +176,8 @@ The active `BotVersion`'s planner bundle is **locked** after activation. You can
 
 ## `generateAiAgentResponse` — Invocable Action
 
+*Annotation: `generateAiAgentResponse`, `GenAiFunction`, `GenAiPlugin`, and `BotVersion` are core Agentforce/Bot Framework platform metadata — they aren't part of Revenue Management and don't appear in the RLM Developer Guide (v68.0), which has no dedicated Agentforce chapter. The parameter tables below reflect the Bot invocable-action contract as implemented in this project (see `email_config_agent.md`) and are unverified against the RLM Dev Guide; verify against Salesforce Help/the Bots API reference if the platform behavior is in question.*
+
 Used to invoke a Legacy Bot agent from a Flow. Key parameters:
 
 | Parameter | Type | Notes |
@@ -296,6 +298,7 @@ Solution: Use two-step PST sequencing (Number first, then Picklist). See `rlm-pr
 
 | Version | Date | Change |
 |---|---|---|
+| 2.0.0 | 2026-09-11 | v68 re-baseline (Winter '27). Removed the fabricated "RLM Developer Guide v66.0: Agentforce for Revenue Cloud (p. 1841)" citation — confirmed via Salesforce Help search that Agentforce for Revenue Cloud content lives in Salesforce Help, not the Dev Guide (which has no Agentforce chapter); replaced with an honest Salesforce Help citation and annotated core-platform Bot/Agentforce elements (`generateAiAgentResponse`, `GenAiFunction`, `GenAiPlugin`, `BotVersion`) as unverifiable against the RLM Dev Guide; confirmed `RevSalesTrxn.PlaceSalesTransactionExecutor` namespace against Dev Guide Ch.8 Apex Reference; bumped compatibility to API v68.0+ |
 | 1.0.0 | 2026-05-02 | Initial skill — GenAiPlugin/Function authoring, lightning:type schema, getSessionId null fix, BotVersion locking, generateAiAgentResponse, DML/callout boundary, deployment order |
 
 ---
@@ -304,4 +307,4 @@ Solution: Use two-step PST sequencing (Number first, then Picklist). See `rlm-pr
 - See `references/agentforce-metadata-reference.md` for GenAiPlugin, GenAiFunction, and BotVersion metadata field reference
 - Project documentation: `CLAUDE.md` — Phase 3 components and critical technical findings
 - Project documentation: `email_config_agent.md` — full email agent architecture, multi-turn session pattern, DML/callout boundary solution
-- RLM Developer Guide v66.0: Agentforce for Revenue Cloud (p. 1841)
+- Salesforce Help — Agentforce for Revenue Cloud / Revenue Management (help.salesforce.com, topic "Agentforce for Revenue Cloud"). **Correction**: the prior citation to "RLM Developer Guide v66.0: Agentforce for Revenue Cloud (p. 1841)" was fabricated/stale — the RLM Developer Guide (v68.0, Winter '27, 3,031 pages) has no dedicated Agentforce chapter (its Chapter 13 is "Revenue Management Associated Objects," unrelated). Agentforce for Revenue Cloud content (agent templates, topics like Quote Management / Billing Service Assistance / Consumption Management) is documented in Salesforce Help, not the Dev Guide. Where this skill's content overlaps with Dev Guide-documented elements (e.g., `RevSalesTrxn.PlaceSalesTransactionExecutor`, standard invocable actions), it has been cross-checked against the Dev Guide directly (see inline notes below); generic Agentforce/Bot platform mechanics (`GenAiFunction`, `GenAiPlugin`, `BotVersion`, `generateAiAgentResponse`) are core-platform metadata, not RLM-specific, and are annotated as unverifiable against the RLM Dev Guide.

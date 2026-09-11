@@ -2,7 +2,7 @@
 
 Deploy configuration data in this exact order. Violating the sequence causes INVALID_CROSS_REFERENCE_KEY errors.
 
-Source: RLM Developer Guide v66.0, Chapter 3, p. 20–22.
+Source: RLM Developer Guide (v68, Winter '27) — Chapter 3: Revenue Management Deployment › Object Deployment Reference (Product Catalog Management).
 
 | Seq | Object Name | API Name | Lookup Fields (Foreign Keys) |
 |---|---|---|---|
@@ -40,7 +40,7 @@ Source: RLM Developer Guide v66.0, Chapter 3, p. 20–22.
 | 32 | Product Disqualification | ProductDisqualification | User, User Group, Product2 |
 | 33 | Product Category Qualification | ProductCategoryQualification | User, User Group, Category |
 | 34 | Product Category Disqualification | ProductCategoryDisqual | User, User Group, Category |
-| 35 | Runtime Catalog Index Settings | RuntimeCatalogIndexSetting | (internal) |
+| 35 | Runtime Catalog Index Settings | RuntimeCatalogIndexSetting *(unverified — see note)* | (internal) |
 | 36 | WebStore Search Attr Settings | WebStoreSearchAttrSettings | (internal) |
 | 37 | Assessment Question | AssessmentQuestion | AssessmentQuestionVersion, User, User Group |
 | 38 | Assessment Question Version | AssessmentQuestionVersion | AssessmentQuestion (Master-Detail) |
@@ -71,3 +71,14 @@ Source: RLM Developer Guide v66.0, Chapter 3, p. 20–22.
 - Circular dependencies: deploy A without B reference → deploy B → redeploy A with B reference
 - Non-extensible objects (no GUID field possible): use an external reference table
 - Metadata types (ProductSpecificationType, ProductSpecificationRecordType): deploy before any data
+
+## Note on row 35 (RuntimeCatalogIndexSetting)
+*Annotated (v68 re-baseline, 2026-09-11):* `RuntimeCatalogIndexSetting` was searched for in the v68
+PCM Standard Objects section (Ch.4, printed pp.70–118) and does not appear — the alphabetical object
+listing runs from `AttributeCategory` through `ProductSpecificationType` with no `Runtime*` object
+in between. It is retained here as a legacy/organization-specific row rather than removed outright
+(per the "annotate rather than invent" editing convention), but index configuration in v68 should be
+performed via the documented `GET`/`PATCH /connect/pcm/index/setting` and `POST /connect/pcm/index/deploy`
+REST resources — see `references/pcm-api-patterns.md` › Product Index Management. Treat this row as
+unconfirmed for v68; do not build automation against it as a queryable sObject without first
+verifying it exists in your org's schema.

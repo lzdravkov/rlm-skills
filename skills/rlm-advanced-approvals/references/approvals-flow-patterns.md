@@ -115,7 +115,7 @@ Use these in Flow metadata XML to invoke the 6 Advanced Approvals actions.
 </actionCalls>
 ```
 
-### getPreviousRelaRecDetails (v66.0 only)
+### getPreviousRelaRecDetails (available since API v66.0)
 
 ```xml
 <actionCalls>
@@ -139,14 +139,16 @@ Use these in Flow metadata XML to invoke the 6 Advanced Approvals actions.
 
 ## SOQL: Find ApprovalWorkItems for a Quote
 
+*(Corrected — the base `ApprovalWorkItem` object has no `ActorId`/`Actor` relationship or `TargetObjectId` field, and `Status` has no `'Pending'` value. Corrected field names below per the Salesforce Object Reference for `ApprovalWorkItem`.)*
+
 ```apex
 List<ApprovalWorkItem> workItems = [
-    SELECT Id, Status, ActorId, Actor.Name,
+    SELECT Id, Status, AssignedToId, AssignedTo.Name,
            IsAutoReviewed, IsEligibleForSmartApproval,
            SmartApprovalBasisWorkItemId
     FROM ApprovalWorkItem
-    WHERE TargetObjectId = :quoteId
-      AND Status = 'Pending'
+    WHERE RelatedRecordId = :quoteId
+      AND Status = 'Assigned'
     ORDER BY CreatedDate ASC
 ];
 ```
@@ -155,12 +157,14 @@ List<ApprovalWorkItem> workItems = [
 
 ## SOQL: Find Active ApprovalSubmissions for a Record
 
+*(Corrected — `ApprovalSubmission` has no `TargetObjectId` field, and `Status` has no `'Active'` value; the in-flight state is `'InProgress'`. Corrected below per the Salesforce Object Reference for `ApprovalSubmission`.)*
+
 ```apex
 List<ApprovalSubmission> subs = [
     SELECT Id, Status, SubmittedById, SubmittedDate
     FROM ApprovalSubmission
-    WHERE TargetObjectId = :quoteId
-      AND Status = 'Active'
+    WHERE RelatedRecordId = :quoteId
+      AND Status = 'InProgress'
 ];
 ```
 

@@ -1,63 +1,25 @@
 # Product Catalog Management — REST API Patterns
 
-Base URL: `https://{instance}.salesforce.com/services/data/v66.0/commerce`
+Base URL: `https://{instance}.salesforce.com/services/data/v68.0/connect/pcm`
+
+*Correction (v68 re-baseline, 2026-09-11):* the v66-era base path used `/commerce/...`, which is not
+a documented PCM resource family in the v68 Revenue Management Developer Guide. PCM Business APIs
+are Connect REST resources under `/connect/pcm/...` (with a handful of `/revenue/...` resources for
+classification details, config-rule execution, and product recommendations). Product Discovery's
+composite search/browse APIs are a separate family under `/connect/cpq/...` — see
+`rlm-product-discovery/references/product-discovery-api-patterns.md`. Source: RLM Developer Guide
+(v68, Winter '27) — Chapter 4: Product Catalog Management › Business APIs (printed pp.128–276).
 
 ## Authentication
 All REST calls require a Bearer token. In Apex running in an agent context, `UserInfo.getSessionId()` returns null — never use it for callouts. Use SOQL for all data access from Apex in agent context.
 
 ---
 
-## Product Discovery APIs
-
-### Search products by term
-```
-GET /commerce/catalog/search?q={term}&catalogId={catalogId}&language=en_US
-```
-Response:
-```json
-{
-  "products": [
-    { "id": "01t...", "name": "...", "productCode": "...", "fields": {} }
-  ],
-  "total": 10,
-  "pageSize": 25
-}
-```
-
-### Get product detail with attributes and selling models
-```
-GET /commerce/catalog/products/{productId}?fields=id,name,attributes,sellingModels
-```
-Response includes:
-- `attributes[]` — list of attribute definitions with `name`, `dataType`, `picklistValues`
-- `sellingModels[]` — list of `ProductSellingModel` options
-- `mediaGroups[]` — product images
-
-### Browse catalog categories
-```
-GET /commerce/catalog/{catalogId}/categories
-```
-Returns tree of `ProductCategory` nodes with `id`, `name`, `parentCategoryId`, `productCount`.
-
-### Get products in a category
-```
-GET /commerce/catalog/{catalogId}/categories/{categoryId}/products
-```
-
-### Get qualification procedure results
-```
-POST /commerce/catalog/qualificationprocedures/{procedureId}/execute
-Body: { "contextMap": { "accountId": "001...", "opportunityId": "006..." } }
-```
-Returns eligible product IDs based on qualification rules.
-
----
-
-## Product Catalog Business API (CRUD)
+## Product Catalog Management Business APIs (CRUD)
 
 ### Create a product
 ```
-POST /commerce/management/products
+POST /connect/pcm/products
 Body:
 {
   "name": "FESBA Generator 1500kW",
@@ -68,31 +30,97 @@ Body:
 }
 ```
 
-### Get product selling model options
+### Get product detail with attributes and selling models
 ```
-GET /commerce/management/products/{productId}/sellingModelOptions
+GET /connect/pcm/products/{productId}
 ```
 
-### Associate product to category
+### Get bulk product / variant records
 ```
-POST /commerce/management/categories/{categoryId}/products
-Body: { "productId": "01t..." }
+POST /connect/pcm/products/bulk
+POST /connect/pcm/products/variants
 ```
+
+### Browse catalogs and categories
+```
+POST /connect/pcm/catalogs                        # create a catalog
+GET  /connect/pcm/catalogs/{catalogId}             # catalog detail
+GET  /connect/pcm/catalogs/{catalogId}/categories  # category tree for a catalog
+GET  /connect/pcm/categories/{categoryId}          # category detail
+```
+
+### Product classification details
+```
+POST /revenue/product-catalog-management/product-classifications/details
+```
+
+### Deep clone a catalog/product/classification record
+```
+POST /connect/pcm/deep-clone
+```
+
+### Unit of measure info / rounding
+```
+GET  /connect/pcm/unit-of-measure/info
+POST /connect/pcm/unit-of-measure/rounded-data
+```
+
+*Annotated:* the v66-era "get product selling model options" (`GET .../sellingModelOptions`) and
+"associate product to category" (`POST .../categories/{categoryId}/products`) endpoints are **not**
+present in the v68 PCM Business API resource inventory reviewed for this re-baseline. Selling model
+options are exposed as related records on `Product2`/`ProductSellingModelOption` (query via SOQL, or
+request via Product Discovery's `additionalFields`), and category-product association is performed
+by creating a `ProductCategoryProduct` junction record (DML/SOQL), not a dedicated REST call. If a
+newer PCM resource for either of these exists elsewhere in the Business APIs section (printed
+pp.128–276), it wasn't found in the pages sampled for this pass — treat this note as provisional
+and verify directly against Setup if you rely on a REST-only integration path.
+
+Product qualification-procedure execution is a **Product Discovery** capability, not PCM:
+`POST /connect/cpq/qualification` (see `rlm-product-discovery`).
 
 ---
 
-## Product Index
+## Product Index Management
 
-After any catalog changes, rebuild the product index:
+Index build/config/settings live under `/connect/pcm/index/...` — there is no
+`/commerce/.../index` resource in v68, and index settings are **not** managed through a queryable
+custom-settings-style sObject (see annotation under Product Index below).
+
+### Build (deploy) an index for the current catalog snapshot
 ```
-POST /commerce/management/catalogs/{catalogId}/index
+POST /connect/pcm/index/deploy
 ```
+Response fields include `catalogSnapshotTime`, `completionTime`, `createdById`, `indexBuildStatus`,
+`indexBuildType` (`FULL` | `INCREMENTAL`, `INCREMENTAL` avail. API v63.0+), `indexId`, `message`,
+`numberOfChanges`.
+
+### Retrieve / persist index configuration
+```
+GET, PUT /connect/pcm/index/configurations
+```
+
+### List created snapshots and their snapshot indexes
+```
+GET /connect/pcm/index/snapshots
+```
+
+### Fetch / update indexing & search settings
+```
+GET, PATCH /connect/pcm/index/setting
+```
+
+### Count / inspect indexing errors
+```
+GET /connect/pcm/index/error
+```
+
 Or via Setup UI: Revenue Cloud > Product Discovery > Rebuild Index.
 
-Index rebuild is async — poll status:
-```
-GET /commerce/management/catalogs/{catalogId}/indexStatus
-```
+*Annotated:* a `RuntimeCatalogIndexSetting` standard sObject was searched for in the v68 PCM
+Standard Objects section (Ch.4, printed pp.70–118) and not found — the alphabetical listing runs
+from `AttributeCategory` through `ProductSpecificationType` with no `Runtime*` object anywhere in
+between, immediately followed by the "Fields on Standard Objects" section (p.119). Index settings
+are managed exclusively through the `GET`/`PATCH /connect/pcm/index/setting` REST resource above.
 
 ---
 
@@ -112,18 +140,12 @@ GET /commerce/management/catalogs/{catalogId}/indexStatus
 
 Standard invocable actions are available in Flow Builder under the **Product Discovery** category. They call the same `/connect/cpq/` APIs without requiring an HTTP callout or session ID.
 
-| Action Label | Description |
-|---|---|
-| Get Product Catalogs | Returns list of product catalogs |
-| Get Product Categories | Returns categories/subcategories of a catalog |
-| Get Product Category Details | Returns details of a specific category |
-| Get Product Details | Returns full product details (attributes, hierarchy, cardinality) |
-| Get Products | Returns products for a catalog/category |
-| Get Bulk Products | Returns details for multiple product IDs |
-| Search Products | Returns products matching a search query or term |
-| Guided Selection | Returns products based on guided selection search terms |
-| Run Qualification | Runs a qualification procedure on a list of product IDs |
+For the corrected v68 action names (`Find Products Action`, `Get Catalogs Action`, `Get Catalog
+Details Action`, `Get Categories Action`, `Get Category Details Action`, `Get Multiple Product
+Details Action`, `Get Products Action`, `Get Product Details Action`, `Search Product with Guided
+Selection Action`, `Get Product Recommendations Action`, `Execute Qualification Procedure Action`)
+and the corrected Apex reference (`runtime_industries_cpq` namespace, `Invocable.Action` pattern —
+**not** a `ConnectApi.ProductDiscovery` class), see
+`skills/rlm-product-discovery/references/product-discovery-invocable-actions.md`.
 
 **Agentforce context**: `getSessionId()` returns null in the agent execution context — use SOQL or Standard Invocable Actions via Flow instead of direct REST callouts.
-
-See `skills/rlm-product-discovery/references/product-discovery-invocable-actions.md` for Apex (`ConnectApi.ProductDiscovery`) usage and the full invocable action input/output reference.

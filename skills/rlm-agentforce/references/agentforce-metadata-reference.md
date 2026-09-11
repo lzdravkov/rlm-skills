@@ -1,5 +1,7 @@
 # Agentforce — Metadata Reference
 
+*Verification note (v68.0, Winter '27 re-baseline, 2026-09-11): `GenAiPlugin`, `GenAiFunction`, `BotVersion`, and `generateAiAgentResponse` are core Agentforce/Bot Framework platform metadata — they are not part of Revenue Management and the RLM Developer Guide (v68.0) has no dedicated Agentforce chapter (see `SKILL.md` References section for the full citation correction). The field/parameter tables below reflect the Bot invocable-action contract as implemented in this project; verify against Salesforce Help or the Bots/Agentforce metadata reference if platform behavior is in question. Where this file's content overlaps with RLM Dev Guide-documented Apex (`RevSalesTrxn.PlaceSalesTransactionExecutor` in the Execution Context Summary below), it has been directly verified — see the note at that table.*
+
 ---
 
 ## GenAiPlugin (Topic)
@@ -196,3 +198,7 @@ public static String unwrapBotOutput(String raw) {
 | Standard `insert` on `QuoteLineItemAttribute` | ✗ Fails | ✗ Also fails |
 | Standard Invocable Actions | ✓ Works (no session needed) | ✓ Works |
 | `RevSalesTrxn.PlaceSalesTransactionExecutor` | ✓ Works | ✓ Works |
+
+**v68 verification notes**:
+- `RevSalesTrxn.PlaceSalesTransactionExecutor` — **Confirmed**. RLM Developer Guide (v68.0) › Transaction Management › RevSalesTrxn Namespace (printed p. 1737–1745) explicitly declares `PlaceSalesTransactionExecutor`'s `Namespace` as `RevSalesTrxn`, and its method signature returns `revsalestrxn.PlaceSalesTransactionResponse`. (One inline code example in the guide's own `ConfigurationOptionsInput` section shows `PlaceQuote.PlaceSalesTransactionExecutor.execute(...)` — this appears to be a leftover typo from the deprecated `PlaceQuote`/`CommerceOrders` namespace, since `CommerceOrders` was explicitly deprecated as of API v63.0 in favor of `RevSalesTrxn`. It does not change the confirmed namespace for this class.)
+- `Database.insertImmediate()` requirement for `QuoteLineItemAttribute` — **Unverified against the RLM Dev Guide.** A full-text search of the v68.0 Dev Guide for `insertImmediate` and related DML guidance returned no matches — this appears to be an Apex platform-level DML behavior (not documented as an RLM-specific constraint in the Dev Guide's Product Configurator or Transaction Management chapters). Treat this row as implementation-verified in this project rather than Dev-Guide-verified; re-confirm against Salesforce Apex Developer Guide release notes or `rlm-product-configurator` before relying on it in a new org.

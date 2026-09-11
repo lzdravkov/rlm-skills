@@ -1,9 +1,9 @@
 ---
 name: rlm-deployment
-description: Plan and execute Salesforce Revenue Cloud deployments between dev, sandbox, and production orgs including metadata sequencing, GUID strategy, component state management, and post-deployment steps (RLM v66). Use when deploying RLM components across orgs, setting up a new org, or troubleshooting deployment failures. Do NOT use for product catalog data changes (use rlm-product-catalog) or active quote/order operations (use rlm-transaction-management). Triggers on: "deploy", "deployment", "migration", "move to production", "sandbox refresh", "new org setup", "deployment sequence", "GUID", "post-deployment", "metadata deployment", "data migration", "org setup", "activate component".
-compatibility: Salesforce Revenue Cloud, API v66.0+, Enterprise/Unlimited/Developer Edition
+description: Plan and execute Salesforce Revenue Cloud deployments between dev, sandbox, and production orgs including metadata sequencing, GUID strategy, component state management, and post-deployment steps (RLM v68). Use when deploying RLM components across orgs, setting up a new org, or troubleshooting deployment failures. Do NOT use for product catalog data changes (use rlm-product-catalog) or active quote/order operations (use rlm-transaction-management). Triggers on: "deploy", "deployment", "migration", "move to production", "sandbox refresh", "new org setup", "deployment sequence", "GUID", "post-deployment", "metadata deployment", "data migration", "org setup", "activate component".
+compatibility: Salesforce Revenue Cloud, API v68.0+, Enterprise/Unlimited/Developer Edition
 metadata:
-  version: 1.0.0
+  version: 2.0.0
   author: skunkworks-rca
 ---
 
@@ -74,6 +74,8 @@ Deploy configuration data in this exact order (foreign key dependencies):
 
 For full 45-object sequence, see `references/pcm-deploy-sequence.md`.
 
+*Verified against RLM Developer Guide (v68.0, Winter '27) — Chapter 3: Revenue Management Deployment › Object Deployment Reference › Product Catalog Management Objects. The sequence numbers above (1–13, 16, 20–21, 25, 28–30) match the full 45-object table exactly; intervening numbers (14–15, 17–19, 22–24, 26–27, etc.) belong to objects not shown in this abbreviated table.*
+
 ### Step 5: Salesforce Pricing deployment sequence
 
 | Seq | Object | API Name |
@@ -91,6 +93,8 @@ For full 45-object sequence, see `references/pcm-deploy-sequence.md`.
 | 50 | Pricing Recipe (metadata) | PricingRecipe |
 
 **CRITICAL**: Decision Tables must be deployed before PricingRecipe. AttributeBasedAdjRule must exist before AttributeAdjustmentCondition.
+
+*Verified against RLM Developer Guide (v68.0, Winter '27) — Chapter 3 › Object Deployment Reference › Salesforce Pricing Objects. Sequence numbers unchanged from prior baseline.*
 
 ### Step 6: RevenueManagementSettings — deploy via settings file
 All RLM feature flags are in `revenuemanagement.settings`:
@@ -115,10 +119,14 @@ package.xml entry:
     <members>RevenueManagement</members>
     <name>Settings</name>
 </types>
-<version>66.0</version>
+<version>68.0</version>
 ```
 
 **WARNING**: Once `enableTransactionProcessor` is turned on, it cannot be turned off.
+
+**v67.0 addition**: `enableGroupRampTrialSegmentPref` (boolean) enables trial pricing segments within group ramp deals — defines a trial pricing tier as part of a group ramp schedule for promotional/introductory pricing. Requires `enableGroupRampPref` to be relevant. Available in API version 67.0 and later.
+
+*Field list verified against RLM Developer Guide (v68.0, Winter '27) — Chapter 2: RevenueManagementSettings › Fields. All fields in the example above (`enableCoreCPQ`, `enableDeltaPricing`, `enableTransactionProcessor`, `enableAutoAddDerivedAsset`, `enableRampDeal`, `enableRevUnifiedSetup`, `groupsEnabled`, `enableTransactionCloning`) exist unchanged in v68.0. Other v64.0–67.0 fields not previously covered here (`enableAsIsRenewals`, `enableAdvCreateOrdersFromQuote`, `enableAdvancedDetailLinePricing`, `enableAutoLineItemSequencing`, `enableGroupRampMultiSchedulePref`, `enableGroupRampPref`, `hidePriceRefreshNtfcn`, `relaxUniqueCipValidation`, `skipOrgSttPricing`) exist in the metadata type but are out of scope for this minimal-enable example.*
 
 ### Step 7: Managing component states
 Components have Active / Inactive / Draft states that affect deployment:
@@ -179,7 +187,7 @@ Solution: Deploy A first (without the B reference), then deploy B, then redeploy
 
 ### Product index not reflecting new products after deployment
 Cause: Product index must be manually rebuilt after catalog changes.
-Solution: Setup → Revenue Cloud → Product Discovery → Rebuild Index. Or trigger via API: `POST /commerce/catalogs/{id}/index`.
+Solution: Setup → Revenue Cloud → Product Discovery → Rebuild Index. Or trigger a full/incremental rebuild via the PCM Business API: `POST /connect/pcm/index/deploy`. (Corrected: there is no `/commerce/catalogs/{id}/index` resource in v68 — that endpoint doesn't exist. `RuntimeCatalogIndexSetting` is a real v68 standard object, Object Deployment Sequence 35, but it's flagged "Internal" in the Object Deployment Reference — "Internal objects aren't accessible" — so don't attempt to create/update it directly via `sf data create record`; use the Connect API resource or the Setup UI instead.)
 
 ### Feature not working in target org after deployment
 Cause: `RevenueManagementSettings` feature flag not enabled in target.
@@ -233,6 +241,7 @@ User says: "Deploy the FESBA Generator product to the staging org"
 
 | Version | Date | Change |
 |---|---|---|
+| 2.0.0 | 2026-09-11 | v68 re-baseline (Winter '27). Verified PCM/Pricing deployment sequences against the v68 Object Deployment Reference (unchanged); corrected the product-index rebuild endpoint from the nonexistent `/commerce/catalogs/{id}/index` to `POST /connect/pcm/index/deploy` and annotated `RuntimeCatalogIndexSetting` as an Internal (API-inaccessible) object; added `enableGroupRampTrialSegmentPref` (v67.0) to RevenueManagementSettings guidance; bumped package.xml/compatibility to API v68.0; replaced brittle page-number citations with chapter/section-title citations |
 | 1.1.0 | 2026-05-02 | Added See Also table; added scripts/backfill-guids.apex, verify-deployment.apex, rollback-data-load.apex |
 | 1.0.0 | 2026-04-01 | Initial skill — GUID strategy, PCM/pricing deployment sequences, RevenueManagementSettings, post-deploy checklist |
 
@@ -241,6 +250,6 @@ User says: "Deploy the FESBA Generator product to the staging org"
 ## References
 - See `references/deploy-sequence-full.md` for complete all-module deployment sequence table
 - See `references/guid-patterns.md` for GUID field creation and backfill scripts
-- RLM Developer Guide Chapter 3: Revenue Cloud Deployment (p. 9)
-- RLM Developer Guide: Additional Deployment Information (p. 45)
+- RLM Developer Guide (v68.0, Winter '27) — Chapter 3: Revenue Management Deployment › Deployment Workflows and Sequence
+- RLM Developer Guide (v68.0, Winter '27) — Chapter 3: Revenue Management Deployment › Additional Deployment Information
 - See `references/deploy-cli-runbook.md` for a phase-by-phase CLI deployment runbook

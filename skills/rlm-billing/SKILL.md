@@ -1,9 +1,9 @@
 ---
 name: rlm-billing
-description: Generate invoices, apply payments and credits, and manage billing schedules, credit memos, and tax treatment in Salesforce Revenue Cloud (RLM v66). Use when creating billing schedules from orders, posting invoices, applying payments, issuing credit memos, or troubleshooting billing runs. Do NOT use for quote creation (use rlm-transaction-management) or product pricing setup (use rlm-pricing). Triggers on: "billing", "invoice", "generate invoice", "billing schedule", "credit memo", "debit memo", "payment", "apply payment", "billing run", "tax", "billing arrangement", "post invoice", "void invoice", "write off".
-compatibility: Salesforce Revenue Cloud, API v66.0+, Enterprise/Unlimited/Developer Edition
+description: Generate invoices, apply payments and credits, and manage billing schedules, credit memos, and tax treatment in Salesforce Revenue Cloud (Revenue Management). Use when creating billing schedules from orders, posting invoices, applying payments, issuing credit memos, or troubleshooting billing runs. Do NOT use for quote creation (use rlm-transaction-management) or product pricing setup (use rlm-pricing). Triggers on: "billing", "invoice", "generate invoice", "billing schedule", "credit memo", "debit memo", "payment", "apply payment", "billing run", "tax", "billing arrangement", "post invoice", "void invoice", "write off".
+compatibility: Salesforce Revenue Cloud, API v68.0+, Enterprise/Unlimited/Developer Edition
 metadata:
-  version: 1.0.0
+  version: 2.0.0
   author: skunkworks-rca
 ---
 
@@ -40,14 +40,22 @@ Deploy in this order:
 After order activation, create billing schedules:
 
 Flow invocable: `Create Billing Schedules From Billing Transaction Action`
-- Input: `billingTransactionId` (the Order or OrderItem)
-- Output: list of `BillingSchedule` records created
+- Input: `billingTransactionId` (the Order or OrderItem), `executeAsync`
+- Output: `requestId`, `statusUrl` — **this action is asynchronous**; the created `BillingSchedule`
+  records are not returned directly and must be queried after polling `statusUrl`.
 
 Or via Business API:
 ```
-POST /services/data/v66.0/commerce/billing/billing-schedules
+POST /services/data/v68.0/commerce/invoicing/billing-schedules/actions/create
 Body: { "billingTransactionId": "801..." }
 ```
+
+> **Correction (v68 re-baseline):** The prior version showed a synchronous call returning a list of
+> `BillingSchedule` records directly, and used the path `/commerce/billing/billing-schedules`. Both
+> are wrong — the resource lives under `/commerce/invoicing/billing-schedules/actions/create`, and the
+> operation is async (`requestId`/`statusUrl`). See `references/billing-api-reference.md` for the full
+> corrected endpoint/action reference (RLM Developer Guide v68.0, Ch. 12 → Business APIs / Standard
+> Invocable Actions).
 
 ### Step 4: Generate and post invoices
 Two-step process:
@@ -59,52 +67,112 @@ BillingBatchScheduler scheduler = new BillingBatchScheduler();
 // Or use the InvoiceBatchRun record with criteria
 ```
 
-Or via invocable: `Post Draft Invoice Batch Run Action`
+Or via invocable: `Post Draft Invoice(Batch Run) Action`
 - Input: `invoiceBatchRunId`
+- Output: `invBatchDraftToPostedRunId` — a single tracking record ID for the `InvBatchDraftToPostedRun`,
+  not a collection of posted invoice IDs.
 
-**Step 4b: Post draft invoices**
+Or via Business API:
+```
+POST /services/data/v68.0/commerce/billing/invoices/invoice-batch-runs/{invoiceBatchRunId}/actions/draft-to-posted
+```
+
+**Step 4b: Post draft invoices (without a batch run)**
 Flow invocable: `Post Draft Invoice Action`
-- Input: `invoiceId` or list
-- Output: posted `Invoice` records with `Status = Posted`
+- Input: `invoiceId`
+- Exact output shape wasn't independently re-verified this pass; other Billing posting actions follow
+  an async `requestIdentifier`/`statusUrl` pattern — confirm against Ch. 12 → Standard Invocable
+  Actions before relying on a specific output field name.
 
-Business API:
+Or via Business API (collection-based, not per-invoice-ID):
 ```
-POST /services/data/v66.0/commerce/billing/invoices/{invoiceId}/post
+POST /services/data/v68.0/commerce/invoicing/invoices/collection/actions/post
+Body: { "invoiceIds": ["0BL...", "0BL..."] }
 ```
+
+> **Correction (v68 re-baseline):** The prior version's output for the batch-run action
+> (`postedInvoiceIds` collection) and the per-invoice-ID posting path
+> (`/commerce/billing/invoices/{invoiceId}/post`) were both wrong. The batch-run action returns a
+> single `invBatchDraftToPostedRunId`; the standalone posting Business API posts a **collection** of
+> invoice IDs under `/commerce/invoicing/invoices/collection/actions/post`. See
+> `references/billing-api-reference.md` for full detail.
 
 ### Step 5: Apply payments and credits
-**Apply a payment to invoices**:
+**Apply payments/credits to invoices for an account (rules-driven)**:
 Flow invocable: `Apply Payments and Credits by Rules Action`
-- Input: `paymentId`, `invoiceId` list, `applicationRules`
-- Output: `PaymentLineInvoice` records created
+- Input: `accountId`, `targetDate`
+- Output: `rulesApplicationResponse` (Apex-defined — see `RulesAppln` Apex class)
 
-**Apply a credit memo**:
+> **Correction (v68 re-baseline):** The prior version documented `paymentId` + `invoiceId` list +
+> `applicationRules` inputs returning created `PaymentLineInvoice` records. The real action takes an
+> `accountId` and `targetDate` — Salesforce's own rules engine determines which payments/credits apply
+> to which invoices for that account/date; you don't pass a specific payment or invoice list in.
+
+**Apply a credit (single source → single target)**:
 Flow invocable: `Apply Credit Action`
-- Input: `creditMemoId`, `invoiceId`
-- Output: `CreditMemoInvApplication` records
+- Input: `appliedCreditAmount`, `creditSourceRecordId`, `creditTargetRecordId`, `description`,
+  `effectiveDate`
+- Output: `recordId`
+
+> **Correction:** The prior version showed `creditMemoId` + `invoiceId` inputs returning
+> `CreditMemoInvApplication` records (plural). The real action applies one credit amount from one
+> source record to one target record per call and returns a single `recordId`.
 
 ### Step 6: Issue and post credit memos
-1. `Issue Credit Memo Action` — creates a draft CreditMemo from an invoice
-   - Input: `invoiceId`, `creditReason`, `lines[]`
-   - Output: `creditMemoId`
+1. `Issue Credit Memo Action` (URI `blngDsptIssueCreditMemo`) — creates a draft CreditMemo from an invoice
+   - Input: `creditRequestList` (Apex-defined — see `IssueCreditMemo` Apex class, not simple scalars)
+   - Output: `creditResponse` (Apex-defined)
 2. `Post Draft Credit Memo Action` — posts the draft to finalize it
+   - Input: `correlationId`, `creditMemoId`
+   - Output: `requestIdentifier`, `statusUrl` (async)
+
+> **Correction (v68 re-baseline):** The prior version showed simple scalar inputs
+> (`invoiceId`/`creditReason`/`lines[]` → `creditMemoId`) for Issue Credit Memo. The real action's
+> input/output are Apex-defined types (`creditRequestList`/`creditResponse`) — consult the Apex
+> Reference before building a Flow/Apex call. Post Draft Credit Memo is also asynchronous
+> (`requestIdentifier`/`statusUrl`), which the prior version omitted.
 
 ### Step 7: Void and write off
-**Void a posted invoice**: `Void Posted Credit Memo Action` or Business API `POST /invoices/{id}/void`
-- Only voidable if no payments applied
+**Void a posted invoice** (not a credit memo): `POST /services/data/v68.0/commerce/invoicing/invoices/{invoiceId}/actions/void`
+- Only voidable if no payments applied — unapply payments first via `Unapply Payment Action`
 
-**Write off uncollectible invoices**: `Write Off Invoices Action`
-- Input: `invoiceIds[]`, `writeOffReason`, `accountingPeriodId`
-- Creates `GeneralLedgerAcctAsgntRule` entries for write-off accounting
+**Void a posted credit memo** (separate object/API from invoice void): `Void Posted Credit Memo Action`
+(URI `voidPostedCreditMemo`) or Business API `POST /services/data/v68.0/commerce/billing/credit-memos/{creditMemoId}/actions/void`
+- Input: `creditMemoId` — Output: `debitMemoId`, `statusUrl` (voiding generates an offsetting `DebitMemo`)
+
+> **Correction (v68 re-baseline):** The prior version conflated invoice void and credit-memo void
+> under a single bullet using `Void Posted Credit Memo Action` for a *posted invoice*, which is wrong
+> — invoice void and credit-memo void are separate objects/APIs. They're now disambiguated above; see
+> `references/billing-api-reference.md` for full detail.
+
+**Write off uncollectible invoices**: `Write Off Invoices Action` (URI `writeOffInvoices`, **HTTP
+method GET** per the documented action — unusual, verify against your org)
+- Input: `writeOffInvoiceInputList` (Apex-defined — see `InvoiceWriteOff` Apex class)
+- Output: `writeOffInvoiceResponseList` (Apex-defined)
+
+> **Correction:** The prior version showed scalar inputs (`invoiceIds[]`/`writeOffReason`/
+> `accountingPeriodId`) and claimed the action "creates `GeneralLedgerAcctAsgntRule` entries." Neither
+> was found in the action's own documented shape — the real input/output are Apex-defined collection
+> types, and the `GeneralLedgerAcctAsgntRule` side effect is **annotated as unverified** rather than
+> asserted as fact.
 
 ### Step 8: Tax integration
 Revenue Cloud supports external tax engines via `TaxEngine` + `TaxEngineProvider`.
 
 To integrate a tax engine:
-1. Create `TaxEngine` record with provider connection details
-2. Implement `TaxEngineAdapter` Apex interface
-3. Link `TaxTreatment` to products via `TaxTreatmentItem`
-4. Tax is calculated at invoice posting time via `TaxEngineInteractionLog`
+1. Create a `TaxEngine` record (`TaxEngineName`, `MerchantCredentialId`, `Status`) and a
+   `TaxEngineProvider` record whose `ApexAdapterId` points at your deployed Apex class
+2. Implement the `TaxEngineAdapter` Apex interface
+3. Create a `TaxTreatment` (`IsTaxable`, `TaxCode`, `TaxEngineId` ← the engine from step 1) and link it
+   to products via `TaxTreatmentItem`
+4. Tax is calculated at invoice posting time via the order item's `TaxTreatment.TaxEngineId`; each
+   callout is logged to `TaxEngineInteractionLog`
+
+> **Correction (v68 re-baseline):** The tax engine is linked at the **`TaxTreatment`** level
+> (`TaxTreatment.TaxEngineId`), not on `BillingPolicy` — no `TaxEngineId` field was found on
+> `BillingPolicy` in the v68 Standard Objects section. `TaxEngine` also has no `Name`/`MerchantId`/
+> `IsActive` fields — see `references/billing-api-reference.md` → Tax Engine Integration Wiring Guide
+> for the fully corrected field-level walkthrough.
 
 ### Step 9: Grand Total after configuration
 After PST saves a product configuration, query the Quote's Grand Total:
@@ -113,6 +181,22 @@ Quote q = [SELECT GrandTotal, TotalPrice, LineItemCount FROM Quote WHERE Id = :q
 // GrandTotal includes all BOM components + taxes + discounts
 // This is the figure to communicate to customers
 ```
+
+## New in v68.0 (Winter '27)
+
+- `BillingForecast` — new standard object (confirmed by name in the v68 Standard Objects list; field
+  details not independently verified this pass).
+- Several new Standard Invocable Actions confirmed present in v68 that weren't covered in earlier
+  skill versions: `Automate Refund Action`, `Process Refund Credit Memo Action`
+  (`processUnreferencedRefund`), `Generate Account Statement Action`, `Extend Invoice Due Date Action`
+  (`blngSvcExtendInvoiceDueDate`), `Suspend Billing Action` (`blngSvcSuspendBilling`),
+  `Update Bill To Contact Action` (`blngSvcUpdateBillToContact`), `Send Dunning Email Action`
+  (`blngSendDunningEmail`), `Recover Billing Schedules Action`, and `Create Standalone Billing
+  Schedules Action` (`createBillingSchedulesFromTrxn`, see Step 3). These are confirmed to exist by
+  name/URI in Ch. 12 → Standard Invocable Actions; their exact input/output parameter shapes were not
+  individually re-verified this pass — consult the guide before wiring them into a Flow.
+
+---
 
 ## Common Issues
 
@@ -133,8 +217,12 @@ Cause: `CreditMemo.Status != Draft` or amount mismatch.
 Solution: Credit memos must be in Draft status before posting. Verify `CreditMemoLine` amounts.
 
 ### Tax not calculated on invoice
-Cause: `TaxEngine` not connected or `TaxTreatment` not linked to product.
-Solution: Check `TaxEngineInteractionLog` for error details. Verify `TaxTreatmentItem.ProductId` matches the invoiced product.
+Cause: `TaxTreatment.TaxEngineId` not set, `TaxTreatment.IsTaxable` is `false`, or the product isn't
+linked via `TaxTreatmentItem`.
+Solution: Check `TaxEngineInteractionLog.ResultCode` (not a `Status`/`ErrorMessage` field — see
+`references/billing-api-reference.md`) for error details. Verify the product's `TaxTreatmentItem`
+link — confirm the exact linking field (`ProductCode` is confirmed; a possible `ProductId` field was
+not independently re-verified this pass) against Ch. 12 → Standard Objects → Tax Treatment Item.
 
 ## Examples
 
@@ -149,10 +237,16 @@ User says: "Generate an invoice for order X"
 6. Return: invoice generated, Invoice # = INV-XXXX, Total = $Y
 
 ### Example 2: Issue and apply a credit memo for a cancelled service
-1. Call `Issue Credit Memo Action` (invoiceId, reason = "Service Cancellation")
-2. Call `Post Draft Credit Memo Action` (creditMemoId)
-3. Call `Apply Credit Action` (creditMemoId, invoiceId)
+1. Call `Issue Credit Memo Action` with a `creditRequestList` entry (invoiceId, reason = "Service
+   Cancellation") — inspect the returned `creditResponse` for the new draft CreditMemo's ID
+2. Call `Post Draft Credit Memo Action` (`correlationId`, `creditMemoId`) and poll `statusUrl`
+3. Call `Apply Credit Action` (`appliedCreditAmount`, `creditSourceRecordId` = creditMemoId,
+   `creditTargetRecordId` = invoiceId, `description`, `effectiveDate`)
 4. Return: credit of $X applied to invoice INV-XXXX
+
+> **Correction (v68 re-baseline):** Updated to reflect the real Apex-defined `creditRequestList`/
+> `creditResponse` shape for Issue Credit Memo, the async `statusUrl` pattern for Post Draft Credit
+> Memo, and the single-source/single-target scalar shape for Apply Credit Action.
 
 ### Example 3: Check outstanding balance for an account
 1. Query `Invoice` WHERE `AccountId = :accountId AND Status = 'Posted' AND Balance > 0`
@@ -176,6 +270,7 @@ User says: "Generate an invoice for order X"
 
 | Version | Date | Change |
 |---|---|---|
+| 2.0.0 | 2026-09-11 | v68.0 (Winter '27) re-baseline: corrected all Business API endpoint paths (no single `/commerce/billing` base — resources split across `/commerce/invoicing/...`, `/commerce/billing/...`, `/revenue/billing/...`, `/connect/sequences/...`); corrected the input/output parameter shapes for Create Billing Schedules From Billing Transaction, Post Draft Invoice(Batch Run), Generate Invoice Documents, Issue Credit Memo, Post Draft Credit Memo, Apply Credit, Apply Payments and Credits by Rules, Unapply Payment, Unapply Credit, and Write Off Invoices actions (several were fabricated scalar shapes; real shapes are async request/status patterns or Apex-defined types); disambiguated invoice void vs. credit-memo void (previously conflated under one action); rewrote the Tax Integration section — tax engine links at `TaxTreatment.TaxEngineId`, not `BillingPolicy` (no such field exists), and fixed `TaxEngine`/`TaxEngineInteractionLog` field names; renamed `TaxEngineAdaptor` → `TaxEngineAdapter` throughout; bumped compatibility to API v68.0+ |
 | 1.1.0 | 2026-05-02 | Added See Also table; tax engine wiring section added to billing-api-reference.md |
 | 1.0.0 | 2026-04-01 | Initial skill — billing schedule, invoice, credit memo, payment, write-off, tax integration |
 
@@ -183,7 +278,7 @@ User says: "Generate an invoice for order X"
 
 ## References
 - See `references/billing-api-reference.md` for full REST API endpoint reference
-- RLM Developer Guide Chapter 12: Billing (p. 1992)
-- RLM Developer Guide: Billing Business APIs (p. 2357)
-- RLM Developer Guide: Billing Apex Reference (p. 2647)
+- RLM Developer Guide v68.0 (Winter '27) — Chapter 12: Billing → Standard Objects, Fields on Std
+  Objects, Standard Invocable Actions, Business APIs, Apex Reference (ConnectApi, InvoiceWriteOff,
+  IssueCreditMemo, RulesAppln, TaxEngineAdapter Interface), Metadata API Types
 - See `references/billing-api-reference.md` for Grand Total vs. unit price reporting patterns

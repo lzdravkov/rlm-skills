@@ -22,7 +22,8 @@
  * References:
  *   - skills/rlm-product-configurator/references/pst-two-step-pattern.md
  *   - skills/rlm-product-configurator/references/pst-api-patterns.md
- *   - RLM Developer Guide v66.0, RevSalesTrxn namespace (p. 1615)
+ *   - RLM Developer Guide (v68.0, Winter '27) — Chapter 8: Transaction Management ›
+ *     RevSalesTrxn Namespace, printed p.1737
  */
 public class PstExecutorOrderTemplate {
 
@@ -109,25 +110,30 @@ public class PstExecutorOrderTemplate {
     // PST executor
     // ---------------------------------------------------------------------------
 
+    // Corrected for v68 (RLM Developer Guide, Chapter 8 › RevSalesTrxn Namespace, printed
+    // p.1737): there is no `SalesTransactionGraph`/`SalesTransactionMode` in the documented
+    // v68 namespace. `execute()` takes a `GraphRequest`, a `PricingPreferenceEnum`, a
+    // `ConfigurationExecutionEnum`, and a typed `ConfigurationOptionsInput` (not a Map).
+    // Adapted from the guide's `PlaceSalesTransactionTest.callPSTAPI_Post()` worked example
+    // (printed pp.1751-1756).
     private static void executePst(
         String orderId,
         String orderItemId,
         List<AttributeInput> attrs
     ) {
-        RevSalesTrxn.SalesTransactionGraph graph =
+        RevSalesTrxn.GraphRequest graphRequest =
             buildGraph(orderId, orderItemId, attrs);
 
-        Map<String, Object> configOptions = new Map<String, Object>{
-            'applyBomRules' => true,
-            'applyPricing'  => true
-        };
+        RevSalesTrxn.ConfigurationOptionsInput configOptions = new RevSalesTrxn.ConfigurationOptionsInput();
+        configOptions.executeConfigurationRules = true;  // adhere to BOM/config rules
+        configOptions.validateProductCatalog    = true;
 
-        RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
-            graph,
-            RevSalesTrxn.SalesTransactionMode.SYSTEM,
-            RevSalesTrxn.SalesTransactionMode.SYSTEM,
+        RevSalesTrxn.PlaceSalesTransactionResponse response = RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
+            graphRequest,
+            RevSalesTrxn.PricingPreferenceEnum.SYSTEM,
+            RevSalesTrxn.ConfigurationExecutionEnum.SYSTEM,
             configOptions,
-            null
+            null   // contextId — not required when starting a new transaction
         );
     }
 
@@ -136,48 +142,37 @@ public class PstExecutorOrderTemplate {
     //
     // TODO: Implement this method for your org's Order/OrderItem graph.
     //
-    // Key differences from Quote graph:
-    //   - Root node: RevSalesTrxn.SalesTransactionOrder (not SalesTransactionQuote)
-    //   - Line item node: RevSalesTrxn.SalesTransactionOrderItem
+    // Key differences from the Quote variant:
     //   - Attribute record: OrderItemAttribute (not QuoteLineItemAttribute)
     //   - For Picklist attributes: set BOTH AttributeValue AND AttributePicklistValueId
+    //   - Build one RecordResource per OrderItemAttribute to create, wrap each in a
+    //     RecordWithReferenceRequest, and collect into a single GraphRequest.
     // ---------------------------------------------------------------------------
 
     @TestVisible
-    private static RevSalesTrxn.SalesTransactionGraph buildGraph(
+    private static RevSalesTrxn.GraphRequest buildGraph(
         String orderId,
         String orderItemId,
         List<AttributeInput> attrs
     ) {
-        RevSalesTrxn.SalesTransactionGraph graph =
-            new RevSalesTrxn.SalesTransactionGraph();
+        List<RevSalesTrxn.RecordWithReferenceRequest> records =
+            new List<RevSalesTrxn.RecordWithReferenceRequest>();
 
-        // TODO: Add Order node
-        // RevSalesTrxn.SalesTransactionOrder orderNode =
-        //     new RevSalesTrxn.SalesTransactionOrder();
-        // orderNode.record = new Order(Id = orderId);
-        // graph.order = orderNode;
-
-        // TODO: Add OrderItem node
-        // RevSalesTrxn.SalesTransactionOrderItem lineItemNode =
-        //     new RevSalesTrxn.SalesTransactionOrderItem();
-        // lineItemNode.record = new OrderItem(Id = orderItemId);
-
-        // TODO: Add OrderItemAttribute nodes
+        // TODO: Add one RecordResource per OrderItemAttribute to save
+        // Integer refIdx = 0;
         // for (AttributeInput attr : attrs) {
-        //     RevSalesTrxn.SalesTransactionAttribute attrNode =
-        //         new RevSalesTrxn.SalesTransactionAttribute();
-        //     OrderItemAttribute oia = new OrderItemAttribute();
-        //     oia.OrderItemId              = orderItemId;
-        //     oia.AttributeValue           = attr.value;
-        //     // For Picklist: also set oia.AttributePicklistValueId = attr.picklistValueId;
-        //     attrNode.record = oia;
-        //     lineItemNode.attributes.add(attrNode);
+        //     RevSalesTrxn.RecordResource attrResource =
+        //         new RevSalesTrxn.RecordResource(OrderItemAttribute.getSobjectType(), 'POST');
+        //     Map<String, Object> fieldValues = new Map<String, Object>();
+        //     fieldValues.put('OrderItemId', orderItemId);
+        //     fieldValues.put('AttributeValue', attr.value);
+        //     // For Picklist: also set fieldValues.put('AttributePicklistValueId', attr.picklistValueId);
+        //     attrResource.fieldValues = fieldValues;
+        //     records.add(new RevSalesTrxn.RecordWithReferenceRequest('refAttr' + refIdx, attrResource));
+        //     refIdx++;
         // }
 
-        // graph.orderItems = new List<RevSalesTrxn.SalesTransactionOrderItem>{ lineItemNode };
-
-        return graph;
+        return new RevSalesTrxn.GraphRequest('attrGraph', records);
     }
 
     // ---------------------------------------------------------------------------

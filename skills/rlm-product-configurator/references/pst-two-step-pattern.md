@@ -76,40 +76,58 @@ public class ProductAttributeSaveService {
         return results;
     }
 
+    // Corrected for v68 (RLM Developer Guide, Chapter 8 › RevSalesTrxn Namespace, printed
+    // p.1737): there is no `SalesTransactionGraph`/`SalesTransactionMode` in the documented
+    // v68 namespace. The graph is built from `RecordResource` + `RecordWithReferenceRequest`
+    // objects wrapped in a `GraphRequest`; `ConfigurationOptionsInput` is a typed class, not a
+    // Map. Adapted from the guide's `PlaceSalesTransactionTest.callPSTAPI_Post()` worked
+    // example (printed pp.1751-1756).
     private static void executePst(
         String quoteId,
         String quoteLineItemId,
         List<AttributeInput> attrs
     ) {
-        RevSalesTrxn.SalesTransactionGraph graph = buildGraph(quoteId, quoteLineItemId, attrs);
+        RevSalesTrxn.GraphRequest graphRequest = buildGraph(quoteId, quoteLineItemId, attrs);
 
-        Map<String, Object> configOptions = new Map<String, Object>{
-            'applyBomRules' => true,
-            'applyPricing'  => true
-        };
+        RevSalesTrxn.ConfigurationOptionsInput configOptions = new RevSalesTrxn.ConfigurationOptionsInput();
+        configOptions.executeConfigurationRules = true;  // adhere to BOM/config rules
+        configOptions.validateProductCatalog    = true;
 
-        RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
-            graph,
-            RevSalesTrxn.SalesTransactionMode.SYSTEM,
-            RevSalesTrxn.SalesTransactionMode.SYSTEM,
+        RevSalesTrxn.PlaceSalesTransactionResponse response = RevSalesTrxn.PlaceSalesTransactionExecutor.execute(
+            graphRequest,
+            RevSalesTrxn.PricingPreferenceEnum.SYSTEM,
+            RevSalesTrxn.ConfigurationExecutionEnum.SYSTEM,
             configOptions,
-            null
+            null   // contextId — not required when starting a new transaction
         );
     }
 
-    // buildGraph() implementation: populate SalesTransactionGraph
-    // with quoteId, quoteLineItemId, and attribute patch records.
-    // See RLM Developer Guide Chapter 8, RevSalesTrxn Namespace, p. 1615.
-    private static RevSalesTrxn.SalesTransactionGraph buildGraph(
+    // buildGraph() implementation: build one RecordResource per attribute to create/update,
+    // wrap each in a RecordWithReferenceRequest, and collect into a single GraphRequest.
+    // See RLM Developer Guide (v68.0, Winter '27) — Chapter 8: Transaction Management ›
+    // RevSalesTrxn Namespace, printed p.1737.
+    private static RevSalesTrxn.GraphRequest buildGraph(
         String quoteId,
         String quoteLineItemId,
         List<AttributeInput> attrs
     ) {
-        // Implementation depends on your graph construction pattern
         // Key: include AttributeValue AND AttributePicklistValueId for Picklist types
-        RevSalesTrxn.SalesTransactionGraph graph = new RevSalesTrxn.SalesTransactionGraph();
-        // ... populate graph
-        return graph;
+        List<RevSalesTrxn.RecordWithReferenceRequest> records = new List<RevSalesTrxn.RecordWithReferenceRequest>();
+        Integer refIdx = 0;
+        for (AttributeInput attr : attrs) {
+            RevSalesTrxn.RecordResource attrResource =
+                new RevSalesTrxn.RecordResource(QuoteLineItemAttribute.getSobjectType(), 'POST');
+            Map<String, Object> fieldValues = new Map<String, Object>();
+            fieldValues.put('QuoteLineItemId', quoteLineItemId);
+            fieldValues.put('AttributeValue', attr.value);
+            if (attr.dataType == 'Picklist') {
+                fieldValues.put('AttributePicklistValueId', attr.picklistValueId);
+            }
+            attrResource.fieldValues = fieldValues;
+            records.add(new RevSalesTrxn.RecordWithReferenceRequest('refAttr' + refIdx, attrResource));
+            refIdx++;
+        }
+        return new RevSalesTrxn.GraphRequest('attrGraph', records);
     }
 
     public class SaveRequest {
@@ -131,7 +149,7 @@ public class ProductAttributeSaveService {
 
 ## Validation (Confirmed Working)
 
-Tested on RLM v66.0 with:
+Tested on RLM v68.0 with:
 - `requiredKW = 1500.0` (Number)
 - `DutyRating = Data Center Continuous (DCC)` (Picklist)
 

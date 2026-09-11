@@ -12,13 +12,13 @@ Errors organized by domain. Each entry: symptom → root cause → fix → which
 **Fix 1**: Two-step PST sequencing — `executePst(numberAttrs)` first, then `executePst(picklistAttrs)`.
 **Root cause 2**: Picklist attribute submitted without `AttributePicklistValueId`.
 **Fix 2**: Always include both `AttributeValue` (display text) and `AttributePicklistValueId` in the PST payload for Picklist attributes.
-**Root cause 3**: `applyBomRules: false` in configOptions.
-**Fix 3**: Set `applyBomRules: true` in configOptions map.
+**Root cause 3**: Configuration rules not requested on the PST call. (v68: there is no `applyBomRules` map key — config-rule execution is a typed property on `RevSalesTrxn.ConfigurationOptionsInput`.)
+**Fix 3**: Set `configOptions.executeConfigurationRules = true` on the `RevSalesTrxn.ConfigurationOptionsInput` passed to `PlaceSalesTransactionExecutor.execute()`.
 
 ### `internalSuccess: true` but price not updated after PST
 **Domain**: rlm-pricing, rlm-product-configurator
-**Root cause**: `applyPricing: false` in configOptions, or no active `PriceBookEntry` for the product/pricebook combination.
-**Fix**: Set `applyPricing: true`. Verify `PriceBookEntry.IsActive = true` and correct `ProductSellingModelId`.
+**Root cause**: PST invoked with a non-pricing `PricingPreferenceEnum` (v68: pricing is controlled by the `RevSalesTrxn.PricingPreferenceEnum` positional argument to `execute()`, not an `applyPricing` map key), or no active `PriceBookEntry` for the product/pricebook combination.
+**Fix**: Pass `RevSalesTrxn.PricingPreferenceEnum.SYSTEM` to `PlaceSalesTransactionExecutor.execute()`. Verify `PriceBookEntry.IsActive = true` and correct `ProductSellingModelId`.
 
 ### `DML on QuoteLineItemAttribute not allowed` / `Argument must be of internal sObject type`
 **Domain**: rlm-product-configurator
@@ -52,7 +52,7 @@ Errors organized by domain. Each entry: symptom → root cause → fix → which
 ### Product index not reflecting new products after deployment
 **Domain**: rlm-product-discovery, rlm-deployment
 **Root cause**: Product index must be manually rebuilt after catalog changes.
-**Fix**: Setup → Revenue Cloud → Product Discovery → Rebuild Index, or `POST /commerce/management/catalogs/{id}/index`.
+**Fix**: Setup → Revenue Cloud → Product Discovery → Rebuild Index, or build the index via `POST /connect/pcm/index/deploy` (PCM index API; see `rlm-product-catalog/references/pcm-api-patterns.md`).
 
 ### Feature flag missing in target org after deployment
 **Domain**: rlm-deployment
@@ -81,7 +81,7 @@ Errors organized by domain. Each entry: symptom → root cause → fix → which
 ### Price not updating after attribute change
 **Domain**: rlm-pricing, rlm-product-configurator
 **Root cause**: PST called with `runConfigRules` only — does not trigger pricing.
-**Fix**: Full `PlaceSalesTransactionExecutor.execute()` with `applyPricing: true`.
+**Fix**: Full `PlaceSalesTransactionExecutor.execute()` with `RevSalesTrxn.PricingPreferenceEnum.SYSTEM`.
 
 ---
 
@@ -102,10 +102,10 @@ Errors organized by domain. Each entry: symptom → root cause → fix → which
 **Root cause**: A payment has already been applied to the invoice.
 **Fix**: Call `Unapply Payment Action` first, then void the invoice.
 
-### Tax not calculated on invoice — `TaxEngineInteractionLog.Status = Failed`
+### Tax not calculated on invoice — `TaxEngineInteractionLog.ResultCode != Success`
 **Domain**: rlm-billing
-**Root cause**: `TaxEngine` not connected to `BillingPolicy`, or `TaxTreatmentItem.ProductId` doesn't match the invoiced product, or `TaxEngineAdapter` Apex class has a bug.
-**Fix**: Check `TaxEngineInteractionLog.ErrorMessage` and `RequestPayload`. Verify `BillingPolicy.TaxEngineId` is set and `TaxTreatmentItem` links the correct product.
+**Root cause**: `TaxEngine` not linked to the applicable `TaxTreatment` (v68: the link is `TaxTreatment.TaxEngineId` — there is no `BillingPolicy.TaxEngineId` field), or the `TaxTreatment`/`TaxTreatmentItem` doesn't match the invoiced product, or the registered `TaxEngineAdapter` Apex class has a bug.
+**Fix**: Query `TaxEngineInteractionLog` and inspect `ResultCode` (valid values: `AdapterException`, `ReferenceDocumentCodeMissing`, `Success`, `TaxEngineError`, `ValidationError`) plus the base64 `RequestBody`. Verify `TaxTreatment.TaxEngineId` is set and that a `TaxTreatmentItem` links the correct product. (v68: `TaxEngineInteractionLog` has no `Status`/`ErrorMessage`/`RequestPayload`/`InvoiceId` fields — use `ResultCode`/`RequestBody`/`ReferenceEntity`.)
 
 ### `SINGLE_EMAIL_LIMIT_EXCEEDED` in Apex logs
 **Domain**: rlm-billing, rlm-agentforce
@@ -137,13 +137,13 @@ Errors organized by domain. Each entry: symptom → root cause → fix → which
 
 ### `No active assets found` on lifecycle action
 **Domain**: rlm-assets
-**Root cause**: `Asset.Status != 'Purchased'` or `Asset.LifecycleEndDate` has already passed.
-**Fix**: Verify `Asset.Status = 'Purchased'` and `LifecycleEndDate > TODAY`. For Evergreen (null `LifecycleEndDate`), only verify Status.
+**Root cause**: `Asset.Status != 'Purchased'` (confirmed v68 value), or the asset's term has passed.
+**Fix**: Verify `Asset.Status = 'Purchased'`. Prefer the **Get Renewable Assets Summary Action** (`renewableAssetsSummary[]`) to confirm eligibility over querying date fields. (v68: `Asset.LifecycleStartDate`/`LifecycleEndDate` are UNVERIFIED — not found in the Standard Objects sections reviewed; do not filter on them without confirming they exist in your org.)
 
 ### Amendment effective date rejected
 **Domain**: rlm-assets
-**Root cause**: `effectiveDate` outside `LifecycleStartDate`–`LifecycleEndDate` range, or a conflicting in-progress lifecycle action exists.
-**Fix**: Check `Asset.LifecycleStartDate`/`EndDate`. Query `QuoteAction WHERE AssetId = :id AND Status IN ('Draft','In Progress')`.
+**Root cause**: `effectiveDate` outside the asset's term, or a conflicting in-progress lifecycle action exists.
+**Fix**: Confirm eligibility via the **initiateAmendment** invocable action rather than a date/`QuoteAction` query. (v68: `Asset.LifecycleStartDate`/`LifecycleEndDate` and the `QuoteAction` object could **not be confirmed** in the v68 guide — the prior `QuoteAction WHERE AssetId = :id AND Status IN (...)` query is unverified; use the invocable action's response to detect conflicting actions.)
 
 ### `Cannot rollback billed asset`
 **Domain**: rlm-assets
@@ -154,9 +154,9 @@ Errors organized by domain. Each entry: symptom → root cause → fix → which
 
 ## Dynamic Revenue Orchestrator Errors
 
-### FulfillmentStep remains `Running` indefinitely
+### FulfillmentStep remains `InProgress` indefinitely
 **Domain**: rlm-dynamic-revenue-orchestrator
-**Root cause**: External service returned HTTP 202 (async accepted) but never called back.
+**Root cause**: External service returned HTTP 202 (async accepted) but never called back. (v68: `FulfillmentStep.State` uses `InProgress` — there is no `Running` state value.)
 **Fix**: Implement a timeout policy or callback monitoring via `FulfillmentSourceChangeEvent`. Add manual step completion logic if no callback arrives.
 
 ### `ProcessIntegrationProvider` interface not recognized
@@ -170,18 +170,18 @@ Errors organized by domain. Each entry: symptom → root cause → fix → which
 
 ### `UsageEntitlementBucket` not created after subscription activation
 **Domain**: rlm-usage-management
-**Root cause**: `ProductUsageGrant.IsActive = false` or `EffectiveStartDate` is in the future.
-**Fix**: Confirm the grant is active and `EffectiveStartDate <= TODAY`.
+**Root cause**: `ProductUsageGrant.Status != 'Active'` (v68: `ProductUsageGrant` has no `IsActive` field — use `Status`, values `Active | Draft | Inactive`), or the entitlement-creation process has not run.
+**Fix**: Confirm `ProductUsageGrant.Status = 'Active'`. If still missing, run the **Retrigger Entitlement Creation Process Action**.
 
-### DrawdownOrder has no effect
+### Drawdown consumes buckets in an unexpected order
 **Domain**: rlm-usage-management
-**Root cause**: Only one active `UsageEntitlementBucket` exists — drawdown order only matters with multiple active buckets.
-**Fix**: Check `SELECT COUNT() FROM UsageEntitlementBucket WHERE UsageEntitlementAccountId = :id AND Status = 'Active'`.
+**Root cause**: The v68 guide's Usage Standard Objects section (printed pp. 1989–2072) documents no `DrawdownOrder` field/picklist (`ExpiringFirst`/`GrantedFirst`) on `ProductUsageGrant` or `UsageEntitlementBucket` — drawdown ordering appears to be internal platform behavior, not a configurable queryable field.
+**Fix**: Do not rely on setting a `DrawdownOrder` field. Verify grant `EffectiveStartDate`/`EffectiveEndDate` windows to influence which entitlements are consumed first, and confirm behavior against your org. See `rlm-usage-management/references/usage-invocable-actions.md` (annotated).
 
 ### Overage charges not appearing on invoice
 **Domain**: rlm-usage-management, rlm-billing
-**Root cause**: `UsageOveragePolicy.OverageType = 'Allow'` (not `Chargeable`), or the overage rate is not linked to a `RateCardEntry`.
-**Fix**: Set `OverageType = 'Chargeable'`. Link the overage rate to an active rate card.
+**Root cause**: `UsageOveragePolicy.OverageChargeable = 'No'` (v68: this is the policy's only functional field — there is no `OverageType`/`OverageRate` field), or the policy is not linked to the resource via `UsageResourcePolicy`/`ProductUsageResourcePolicy.UsageOveragePolicyId`.
+**Fix**: Set `OverageChargeable = 'Yes'`, confirm the resource-policy link, then run the **Process Consumption Overages Action** to (re)calculate `UsageRatableSummary`/`UsageBillingPeriodItem`.
 
 ---
 

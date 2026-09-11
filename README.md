@@ -79,7 +79,7 @@ Each `SKILL.md` follows a three-level progressive disclosure pattern:
 
 ## API Version
 
-All skills target **Salesforce Revenue Cloud API v66.0 (Spring 2026)**.
+All skills target **Salesforce Revenue Cloud (Revenue Management) API v68.0 (Winter '27)**.
 
 ---
 

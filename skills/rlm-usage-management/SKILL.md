@@ -1,9 +1,9 @@
 ---
 name: rlm-usage-management
 description: Model, track, and bill usage entitlements using Salesforce Revenue Cloud's Usage Management module. Use when creating usage grants, entitlement buckets, usage resources, managing drawdown policies (ExpiringFirst/GrantedFirst), configuring overage policies, setting up billing period items, tracking usage summaries, or working with usage commitment assets. Do NOT use for standard order billing (use rlm-billing) or rate management (use rlm-rate-management). Triggers on: "usage", "usage grant", "entitlement", "drawdown", "usage bucket", "ProductUsageGrant", "UsageEntitlementBucket", "UsageResource", "overage", "usage summary", "usage commitment", "usage billing", "ExpiringFirst", "GrantedFirst", "UnitOfMeasure".
-compatibility: Salesforce Revenue Cloud, API v66.0+, Usage Management module enabled
+compatibility: Salesforce Revenue Cloud, API v68.0+, Usage Management module enabled
 metadata:
-  version: 1.0.0
+  version: 2.0.0
   author: skunkworks-rca
 ---
 
@@ -13,35 +13,40 @@ metadata:
 
 ```
 Product2
-  └── ProductUsageResource         (defines what usage resources a product provides)
+  ├── UsageModelType                (Anchor | Pack | Monetary/Quantity/Token Commitment)
+  └── ProductUsageResource          (defines what usage resources a product provides)
        └── ProductUsageResourcePolicy  (policies governing the usage resource)
 
 ProductUsageGrant                  (defines how usage is granted when a product is sold)
-  ├── DrawdownOrder                (ExpiringFirst | GrantedFirst)
   └── ProductUsageResourceId
 
 [At subscription/order time]
+TransactionUsageEntitlement         (links an order/asset to a usage entitlement)
 UsageEntitlementAccount            (per-account entitlement container)
-  └── UsageEntitlementBucket[]     (individual grant buckets, accumulate over time)
+  └── UsageEntitlementBucket[]     (individual grant buckets, accumulate over time; ParentId can chain to another bucket)
        └── UsageEntitlementEntry[] (individual consumption records)
 
+TransactionJournal                  (raw consumption records, aggregated into UsageSummary)
 UsageResource                      (catalog of trackable usage resources)
-UsageRatableSummary                (rolled-up summary of usage for billing)
-UsageSummary                       (detailed usage record per period)
+UsageResourcePolicy / UsageResourceBillingPolicy  (policies governing the resource / how usage is accumulated before rating)
+UsageRatableSummary                (rolled-up summary of usage for rating/overage calculation)
+UsageSummary                       (detailed usage record per period, aggregated from TransactionJournal)
 
 UnitOfMeasure                      (e.g., GB, Hour, Seat)
 UnitOfMeasureClass                 (groups units of measure)
 
-UsageCommitmentPolicy              (commitment levels, e.g., 100 GB/month minimum)
-TransactionUsageEntitlement        (links a transaction line to usage entitlements)
-UsageBillingPeriodItem             (billing period-level usage data for invoicing)
-UsageCmtAssetRelatedObj            (links a commitment asset to related objects)
-UsageRatableSumCmtAssetRt          (rate information for ratable summaries)
-UsagePrdGrantBindingPolicy         (binding policy for product usage grants)
-UsageGrantRenewalPolicy            (defines how grants renew at end of period)
-UsageGrantRolloverPolicy           (defines how unused grants roll over)
-UsageOveragePolicy                 (defines overage behavior when grant is exhausted)
+UsageCommitmentPolicy              (commitment-rate selection, e.g., Lowest Commitment Rate)
+UsageBillingPeriodItem             (billing period-level usage/overage data for invoicing)
+UsageCmtAssetRelatedObj            (links a commitment asset to a related Account/Asset/Contract)
+UsageRatableSumCmtAssetRt          (commitment-asset rate information for ratable summaries)
+UsagePrdGrantBindingPolicy         (binding policy for product usage grants — GrantBindingType/GrantBindingTargetType)
+UsageGrantRenewalPolicy            (defines how grants renew at end of period — IsRenewalAllowed/RenewalFrequency)
+UsageGrantRolloverPolicy           (defines how unused grants roll over — IsRolloverAllowed/MaximumRolloverCount)
+UsageOveragePolicy                 (OverageChargeable flag — whether overage beyond the grant is charged)
 ```
+
+> See `references/usage-objects-reference.md` for the full, field-level object reference (re-verified against
+> RLM Developer Guide v68.0, Ch. 11 → Usage Management, printed pp. 1989–2073).
 
 ---
 
@@ -51,18 +56,23 @@ UsageOveragePolicy                 (defines overage behavior when grant is exhau
 
 ```apex
 UnitOfMeasureClass uomClass = new UnitOfMeasureClass();
-uomClass.Name = 'Data';
-uomClass.DeveloperName = 'Data';
+uomClass.Code = 'Data';           // unique user-defined string; there is no DeveloperName field
+uomClass.Type = 'Usage';          // Currency | Token | Usage (required, defaults to Usage)
+uomClass.Status = 'Active';
 insert uomClass;
 
 UnitOfMeasure uom = new UnitOfMeasure();
-uom.Name = 'Gigabyte';
 uom.UnitCode = 'GB';
 uom.UnitOfMeasureClassId = uomClass.Id;
-uom.RoundingMethod = 'Nearest';  // Up | Down | Nearest
-uom.Scale = 3;                   // Decimal precision
+uom.ConversionFactor = 1;          // factor/rate used to convert to the base unit
+uom.Status = 'Active';
 insert uom;
 ```
+
+> `UnitOfMeasure` has no `RoundingMethod` or `Scale` field in the documented v68 schema — those were removed.
+> `UnitOfMeasureClass` has no `Name`/`DeveloperName` fields to set explicitly; `Name` is autogenerated and
+> `Code` is the unique user-defined identifier. (RLM Developer Guide v68.0, Ch. 11 → Standard Objects →
+> UnitOfMeasure / UnitOfMeasureClass.)
 
 ### Step 2: Define Usage Resources
 
@@ -70,10 +80,11 @@ A `UsageResource` represents a trackable resource category:
 
 ```apex
 UsageResource resource = new UsageResource();
-resource.Name = 'Data Storage';
-resource.DeveloperName = 'Data_Storage';
-resource.UnitOfMeasureId = uom.Id;
-resource.IsActive = true;
+resource.Code = 'Data_Storage';          // unique user-defined string; there is no DeveloperName field
+resource.Category = 'Usage';             // Currency | Usage | Token
+resource.DefaultUnitOfMeasureId = uom.Id;
+resource.UnitOfMeasureClassId = uomClass.Id;
+resource.Status = 'Active';              // Active | Draft | Inactive; there is no IsActive field
 insert resource;
 ```
 
@@ -83,114 +94,158 @@ insert resource;
 
 ```apex
 ProductUsageResource pur = new ProductUsageResource();
-pur.Product2Id = product.Id;
+pur.ProductId = product.Id;              // NOT Product2Id — relationship name is "ProductOffer"
 pur.UsageResourceId = resource.Id;
-pur.IsActive = true;
+pur.Status = 'Active';                   // Active | Draft | Inactive; there is no IsActive field
 insert pur;
 ```
 
 ### Step 4: Configure Product Usage Grants
 
-`ProductUsageGrant` defines how usage is granted when the product is sold:
+`ProductUsageGrant` defines how usage is granted when the product is sold, bound to a `ProductUsageResource` +
+`ProductSellingModel` combination:
 
 ```apex
 ProductUsageGrant grant = new ProductUsageGrant();
-grant.Name = '100 GB Storage Grant';
-grant.Product2Id = product.Id;
 grant.ProductUsageResourceId = pur.Id;
-grant.Quantity = 100;                          // 100 GB per billing period
-grant.DrawdownOrder = 'ExpiringFirst';         // ExpiringFirst | GrantedFirst
-grant.EffectiveStartDate = DateTime.now();
 grant.ProductSellingModelId = sellingModel.Id;
+grant.EffectiveStartDate = DateTime.now();
 insert grant;
 ```
 
-**DrawdownOrder values:**
-- `ExpiringFirst` — consume grants that expire soonest first (recommended for time-limited grants)
-- `GrantedFirst` — consume the most recently granted usage first
-- `GrantedLast` — deprecated
+> **Annotation:** `ProductUsageGrant` does not have a `Name` field to set directly (use `Label` if you need a
+> display name), and it does not have a `Product2Id` or `Quantity` field — the product link is implied via
+> `ProductUsageResourceId`, and the granted quantity comes from the associated `ProductSellingModel`/pricing
+> setup, not a field on this object. This object's full field list was not re-confirmed with page images during
+> this v68 pass — verify against RLM Developer Guide v68.0, Ch. 11 → Standard Objects → ProductUsageGrant
+> (printed p. 1990) before writing production code against it.
+>
+> There is also no documented `DrawdownOrder` field/picklist on `ProductUsageGrant` or `UsageEntitlementBucket`
+> in the v68 Standard Objects section — see the annotation in `references/usage-invocable-actions.md`.
 
 ### Step 5: Set Up Overage Policy
 
 ```apex
 UsageOveragePolicy overagePolicy = new UsageOveragePolicy();
 overagePolicy.Name = 'Standard Overage';
-overagePolicy.OverageType = 'Chargeable';   // Chargeable | Block | Allow
-overagePolicy.OverageRate = 0.10;           // per GB overage charge
-overagePolicy.UsageResourceId = resource.Id;
+overagePolicy.OverageChargeable = 'Yes';   // No | Yes — this is the object's only functional field
 insert overagePolicy;
+
+// Link the policy to a resource via UsageResourcePolicy (resource-level) or
+// ProductUsageResourcePolicy (product-level), not via a field on UsageOveragePolicy itself:
+UsageResourcePolicy resourcePolicy = new UsageResourcePolicy();
+resourcePolicy.UsageResourceId = resource.Id;
+resourcePolicy.UsageOveragePolicyId = overagePolicy.Id;
+insert resourcePolicy;
 ```
+
+> `UsageOveragePolicy` has no `OverageType` or `OverageRate` field, and no direct `UsageResourceId` field — it
+> is a simple chargeable/not-chargeable flag (`OverageChargeable`), linked to a resource through
+> `UsageResourcePolicy`/`ProductUsageResourcePolicy`. The actual overage rate is calculated during rating and
+> stored on `UsageRatableSummary.NetUnitRate`.
 
 ### Step 6: Configure Grant Renewal and Rollover
 
 ```apex
 // Renewal policy — how grants refresh each period
 UsageGrantRenewalPolicy renewal = new UsageGrantRenewalPolicy();
-renewal.Name = 'Monthly Renewal';
-renewal.RenewalType = 'Fixed';      // Fixed | Cumulative
-renewal.RenewalPeriod = 'Monthly';
+renewal.Code = 'Monthly_Renewal';
+renewal.Status = 'Active';
+renewal.IsRenewalAllowed = true;
+renewal.RenewalFrequency = 1;
+renewal.RenewalFrequencyUnit = 'Month';    // Month | Quarter | Year
 insert renewal;
 
 // Rollover policy — what happens to unused grants
 UsageGrantRolloverPolicy rollover = new UsageGrantRolloverPolicy();
-rollover.Name = 'No Rollover';
-rollover.RolloverType = 'None';     // None | FullRollover | CappedRollover
+rollover.Code = 'No_Rollover';
+rollover.Status = 'Active';
+rollover.IsRolloverAllowed = false;
 insert rollover;
+
+// Both policies are attached at the transaction-entitlement level:
+// TransactionUsageEntitlement.UsageGrantRefreshPolicyId / .UsageGrantRolloverPolicyId
 ```
+
+> There are no `RenewalType`/`RenewalPeriod` fields on `UsageGrantRenewalPolicy` (use `IsRenewalAllowed` +
+> `RenewalFrequency`/`RenewalFrequencyUnit`), and no `RolloverType`/`RolloverCap` fields on
+> `UsageGrantRolloverPolicy` (use `IsRolloverAllowed` + `MaximumRolloverCount` + `ShouldAllowRolloverExpiry`).
 
 ### Step 7: Entitlement Buckets (Runtime)
 
-At subscription activation, the platform creates `UsageEntitlementAccount` and `UsageEntitlementBucket` records automatically from the `ProductUsageGrant` definitions. To query:
+At subscription activation, the platform creates `UsageEntitlementAccount` and `UsageEntitlementBucket` records automatically from the `ProductUsageGrant`/`TransactionUsageEntitlement` definitions. To query:
 
 ```apex
 List<UsageEntitlementBucket> buckets = [
-    SELECT Id, Name, RemainingQuantity, GrantedQuantity,
-           ConsumedQuantity, ExpirationDate, Status,
-           UsageEntitlementAccountId
+    SELECT Id, Name, BucketBalance, ConsumedEntitlement,
+           TotalAsOfBalance, EffectiveEndDateTime,
+           ParentId, UsageResourceId
     FROM UsageEntitlementBucket
-    WHERE UsageEntitlementAccountId IN (
+    WHERE ParentId IN (
         SELECT Id FROM UsageEntitlementAccount WHERE AccountId = :accountId
     )
-    AND Status = 'Active'
-    ORDER BY ExpirationDate ASC
+    AND EffectiveEndDateTime >= :DateTime.now()
+    ORDER BY EffectiveEndDateTime ASC
 ];
 ```
+
+> `UsageEntitlementBucket` has no `RemainingQuantity`, `GrantedQuantity`, `ConsumedQuantity`, `ExpirationDate`,
+> `Status`, or direct `UsageEntitlementAccountId` field. Use `BucketBalance`, `ConsumedEntitlement`,
+> `EffectiveEndDateTime`, and the polymorphic `ParentId` (which can point to `UsageEntitlementAccount` or to a
+> parent `UsageEntitlementBucket`) instead.
 
 ### Step 8: Usage Summary Queries
 
 ```apex
-// Monthly usage summary
+// Usage summary for a period
 List<UsageSummary> summaries = [
     SELECT Id, UsageResourceId, UsageResource.Name,
-           ConsumedQuantity, BillingPeriodStartDate, BillingPeriodEndDate,
-           AccountId
+           ConsumptionUnits, StartDateTime, EndDateTime,
+           AccountId, Status
     FROM UsageSummary
     WHERE AccountId = :accountId
-      AND BillingPeriodStartDate >= :periodStart
-      AND BillingPeriodEndDate <= :periodEnd
+      AND StartDateTime >= :periodStart
+      AND EndDateTime <= :periodEnd
 ];
 
-// Ratable summary for billing
+// Ratable summary for overage rating
 List<UsageRatableSummary> ratables = [
-    SELECT Id, TotalQuantity, BillableQuantity, OverageQuantity,
-           UsageSummaryId, RateCardEntryId
+    SELECT Id, TierQuantity, NetUnitRate, TotalAmount, OverageQuantity,
+           UsageEntitlementAccountId, UsageResourceId, Status
     FROM UsageRatableSummary
-    WHERE UsageSummary.AccountId = :accountId
+    WHERE AccountId = :accountId
 ];
 ```
+
+> `UsageSummary` has no `ConsumedQuantity`/`BillingPeriodStartDate`/`BillingPeriodEndDate` fields — use
+> `ConsumptionUnits` and `StartDateTime`/`EndDateTime`. `UsageRatableSummary` has no `TotalQuantity`,
+> `BillableQuantity`, or `RateCardEntryId` field — use `TierQuantity`/`NetUnitRate`/`TotalAmount`, and note
+> there is no direct link from `UsageRatableSummary` to a rate-management `RateCardEntry` documented on the
+> object itself.
 
 ### Step 9: Commitment Policies
 
-For minimum-commitment products:
+For minimum-commitment products, `UsageCommitmentPolicy` selects a commitment rating rate — it does not carry
+a commitment quantity or period directly:
 
 ```apex
 UsageCommitmentPolicy commitment = new UsageCommitmentPolicy();
-commitment.Name = '100 GB Monthly Minimum';
-commitment.CommitmentQuantity = 100;
-commitment.CommitmentPeriod = 'Monthly';
-commitment.UsageResourceId = resource.Id;
+commitment.Name = 'Lowest Commitment Rate';
+commitment.CommitmentRate = 'Lowest Commitment Rate';   // Bounded Object Rate | Lowest Commitment Rate
 insert commitment;
+
+// Attach it to a resource via UsageResourcePolicy (or ProductUsageResourcePolicy at the product level):
+UsageResourcePolicy resourcePolicy = new UsageResourcePolicy();
+resourcePolicy.UsageResourceId = resource.Id;
+resourcePolicy.UsageCommitmentPolicyId = commitment.Id;
+insert resourcePolicy;
 ```
+
+> `UsageCommitmentPolicy` has only two fields: `Name` and `CommitmentRate`. There are no `CommitmentQuantity`,
+> `CommitmentPeriod`, or `UsageResourceId` fields on it — the actual minimum-commitment quantity is defined
+> through the product's usage grant/entitlement setup (`UsageModelType = 'Monetary Commitment'` / `'Quantity
+> Commitment'` / `'Token Commitment'` on `Product2`), and the link to a resource happens via
+> `UsageResourcePolicy`/`ProductUsageResourcePolicy.UsageCommitmentPolicyId`.
 
 ---
 
@@ -211,33 +266,35 @@ insert commitment;
 ```
 
 Runtime objects (created by platform, not deployed):
+- `TransactionUsageEntitlement`
 - `UsageEntitlementAccount`
 - `UsageEntitlementBucket`
 - `UsageEntitlementEntry`
+- `TransactionJournal`
 - `UsageSummary`
 - `UsageRatableSummary`
+- `UsageRatableSumCmtAssetRt`
 - `UsageBillingPeriodItem`
-- `TransactionUsageEntitlement`
 
 ---
 
 ## Common Issues
 
 ### `UsageEntitlementBucket` not created after activation
-Cause: `ProductUsageGrant.IsActive = false` or `EffectiveStartDate` is in the future.
-Solution: Confirm the grant is active and the effective date has passed.
+Cause: The `TransactionUsageEntitlement`/`ProductUsageGrant` setup is incomplete, or `EffectiveStartDate` is in the future.
+Solution: Confirm the entitlement's effective dates have passed, and use the **Retrigger Entitlement Creation Process Action** to re-run entitlement creation if the initial run failed.
 
-### DrawdownOrder has no effect
-Cause: Only one active bucket exists; drawdown order only matters when multiple buckets are present.
-Solution: Check for multiple active `UsageEntitlementBucket` records for the account.
+### Bucket balances look stale after a renewal or rollover
+Cause: `UsageEntitlementBucket.BucketBalance`/`ConsumedEntitlement` haven't been recalculated after a policy-driven change.
+Solution: Invoke the **Refresh Usage Entitlement Bucket Action** for the affected `UsageEntitlementAccount`.
 
 ### Overage charges not appearing on invoice
-Cause: `UsageOveragePolicy.OverageType` is `Allow` (not `Chargeable`) or the overage rate is not linked to a `RateCardEntry`.
-Solution: Set `OverageType = 'Chargeable'` and ensure the overage rate is linked to an active rate card.
+Cause: `UsageOveragePolicy.OverageChargeable` is `No`, or the policy isn't linked to the resource via `UsageResourcePolicy`/`ProductUsageResourcePolicy.UsageOveragePolicyId`.
+Solution: Set `OverageChargeable = 'Yes'` on the policy, confirm the policy link, and run the **Process Consumption Overages Action** to (re)calculate `UsageRatableSummary`/`UsageBillingPeriodItem` records.
 
-### Usage not rolling up to `UsageRatableSummary`
-Cause: The IndustriesUsageSettings or the usage billing Flow is not activated.
-Solution: Enable `IndustriesUsageSettings` and verify the usage billing Flow is active.
+### Usage not rolling up to `UsageSummary`/`UsageRatableSummary`
+Cause: `IndustriesUsageSettings.enableUsage` is `false`, or the **Invoke Summary Creation Action** hasn't been run against the pending `TransactionJournal` records.
+Solution: Set `enableUsage = true` in `IndustriesUsageSettings` and confirm the summary-creation Flow/action is scheduled or invoked for the period.
 
 ---
 
@@ -245,10 +302,10 @@ Solution: Enable `IndustriesUsageSettings` and verify the usage billing Flow is 
 
 | Skill | Why |
 |---|---|
-| `rlm-rate-management` | Overage charges are calculated using `RateCardEntry` records; `UsageRatableSummary.RateCardEntryId` links to rate management |
+| `rlm-rate-management` | Overage rating during `UsageRatableSummary` calculation is driven by rate management (the specific field-level link was not independently reconfirmed this pass — see `usage-objects-reference.md`) |
 | `rlm-billing` | `UsageBillingPeriodItem` records are consumed by billing runs to generate invoice lines for usage-based charges |
 | `rlm-transaction-management` | `TransactionUsageEntitlement` is created when an order containing usage-based products is decomposed; links the order line to usage entitlements |
-| `rlm-deployment` | `IndustriesUsageSettings` must be deployed before runtime objects can be created |
+| `rlm-deployment` | `IndustriesUsageSettings` (`enableUsage`) must be deployed before runtime objects can be created |
 
 ---
 
@@ -256,12 +313,13 @@ Solution: Enable `IndustriesUsageSettings` and verify the usage billing Flow is 
 
 | Version | Date | Change |
 |---|---|---|
+| 2.0.0 | 2026-09-11 | v68.0 (Winter '27) re-baseline: corrected every sObject/field name across the Object Model, all 9 Apex/SOQL code samples, and both reference files against the RLM Developer Guide v68.0 Standard Objects section (most fields in the prior version were fabricated — see `references/usage-objects-reference.md` for the full corrected schema); replaced the 6 fabricated Standard Invocable Action names with the 4 real ones (Invoke Summary Creation, Process Consumption Overages, Refresh Usage Entitlement Bucket, Retrigger Entitlement Creation Process); fixed `IndustriesUsageSettings` to its single real field `enableUsage`; added `TransactionJournal`, `UsageResourcePolicy`, and `UsageResourceBillingPolicy` to the Object Model and deployment/runtime lists; annotated the undocumented `DrawdownOrder` field/behavior rather than silently removing it; bumped compatibility to API v68.0+ |
 | 1.1.0 | 2026-05-02 | Added See Also table |
 | 1.0.0 | 2026-04-29 | Initial skill — 22+ usage objects, DrawdownOrder, overage policy, grant renewal/rollover, commitment policies |
 
 ---
 
 ## References
-- See `references/usage-objects-reference.md` for full field-level reference for all 22+ objects
+- See `references/usage-objects-reference.md` for full field-level reference for all usage management objects
 - See `references/usage-invocable-actions.md` for Usage Management Standard Invocable Actions
-- RLM Developer Guide v66.0, Chapter 11: Usage Management (p. 1841)
+- RLM Developer Guide v68.0 (Winter '27) — Chapter 11: Usage Management → Standard Objects, Fields on Std Objects, Standard Invocable Actions, Metadata API Types

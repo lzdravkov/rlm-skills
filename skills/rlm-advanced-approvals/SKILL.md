@@ -1,9 +1,9 @@
 ---
 name: rlm-advanced-approvals
 description: Submit, review, reassign, override, and recall approval work items in Salesforce Revenue Cloud using the 6 Advanced Approvals Standard Invocable Actions. Use when integrating with the Advanced Approvals approval workflow — canceling submissions, overriding decisions, reassigning approvers, recalling submissions, reviewing work items, or retrieving related record details from previous approval instances. Do NOT use for Salesforce standard approvals (different API). Triggers on: "approval", "approve", "reject", "approval work item", "submit for approval", "recall approval", "reassign approver", "override approval", "ApprovalWorkItem", "approvalSubmissionId", "approvalWorkItemId", "smart approval", "channelType".
-compatibility: Salesforce Revenue Cloud, API v66.0+, Advanced Approvals enabled
+compatibility: Salesforce Revenue Cloud, API v68.0+, Advanced Approvals enabled
 metadata:
-  version: 1.0.0
+  version: 2.0.0
   author: skunkworks-rca
 ---
 
@@ -26,7 +26,7 @@ Advanced Approvals provides 6 standard invocable actions. All are callable via:
 
 Cancels an active approval submission.
 
-**REST URI**: `POST /services/data/v66.0/actions/standard/cancelApprovalSubmission`
+**REST URI**: `POST /services/data/v68.0/actions/standard/cancelApprovalSubmission`
 
 **Inputs:**
 
@@ -41,18 +41,18 @@ Cancels an active approval submission.
 
 ---
 
-### 2. getPreviousRelaRecDetails *(API v66.0 only)*
+### 2. getPreviousRelaRecDetails *(available since API v66.0)*
 
 Retrieves related record details from a previous approval orchestration instance. Used to carry forward context (e.g., related Account or Order) when re-submitting after a recall.
 
-**REST URI**: `POST /services/data/v66.0/actions/standard/getPreviousRelaRecDetails`
+**REST URI**: `POST /services/data/v68.0/actions/standard/getPreviousRelaRecDetails`
 
 **Inputs:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `flowOrchestrationInstanceId` | String | Required | ID of the completed `FlowOrchestrationInstance` |
-| `stepApiNamesList` | String[] | Required | List of orchestration step API names to retrieve related records for |
+| `stepApiNamesList` | String | Required | A comma-delimited list of orchestration step API names to retrieve related records for. *(Annotated: the RLM Developer Guide's action-reference table states the input `Type` as `string` with a "comma-delimited list" description, but the guide's own JSON example for this action shows array/list syntax. Verify the exact shape — comma-delimited string vs. array — against your org's action metadata before relying on this in production.)* |
 
 **Outputs:**
 
@@ -60,7 +60,7 @@ Retrieves related record details from a previous approval orchestration instance
 |---|---|---|
 | `previousRelatedRecordDetails` | sObject | Related record data from the previous orchestration instance |
 
-**Note:** Available API v66.0 and later only. Will error on earlier API versions.
+**Note:** This action is available in API version 66.0 and later — it is not restricted to *only* v66.0. It remains available and fully supported under the v68.0 baseline used by this skill. (Corrected from a prior "v66.0 only" mislabel; source: RLM Developer Guide, Chapter 9: Advanced Approvals — Standard Invocable Actions — Get Previous Related Record Details, printed p. 1809.)
 
 ---
 
@@ -68,7 +68,7 @@ Retrieves related record details from a previous approval orchestration instance
 
 Approves or rejects a work item on behalf of the assigned approver, bypassing the normal approval flow.
 
-**REST URI**: `POST /services/data/v66.0/actions/standard/overrideApprovalWorkItem`
+**REST URI**: `POST /services/data/v68.0/actions/standard/overrideApprovalWorkItem`
 
 **Inputs:**
 
@@ -89,7 +89,7 @@ Approves or rejects a work item on behalf of the assigned approver, bypassing th
 
 Reassigns an approval work item from its current assignee to a different user.
 
-**REST URI**: `POST /services/data/v66.0/actions/standard/reassignApprovalWorkItem`
+**REST URI**: `POST /services/data/v68.0/actions/standard/reassignApprovalWorkItem`
 
 **Inputs:**
 
@@ -107,7 +107,7 @@ Reassigns an approval work item from its current assignee to a different user.
 
 Recalls an active approval submission, returning it to the submitter for modification.
 
-**REST URI**: `POST /services/data/v66.0/actions/standard/recallApprovalSubmission`
+**REST URI**: `POST /services/data/v68.0/actions/standard/recallApprovalSubmission`
 
 **Inputs:**
 
@@ -126,7 +126,7 @@ Recalls an active approval submission, returning it to the submitter for modific
 
 The primary action used by approvers to approve or reject a work item assigned to them.
 
-**REST URI**: `POST /services/data/v66.0/actions/standard/reviewApprovalWorkItem`
+**REST URI**: `POST /services/data/v68.0/actions/standard/reviewApprovalWorkItem`
 
 **Inputs:**
 
@@ -149,7 +149,7 @@ All 6 actions use the same REST pattern:
 
 ```bash
 curl -X POST \
-  https://yourInstance.salesforce.com/services/data/v66.0/actions/standard/reviewApprovalWorkItem \
+  https://yourInstance.salesforce.com/services/data/v68.0/actions/standard/reviewApprovalWorkItem \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -189,7 +189,21 @@ In Flow Builder, add a **Salesforce-provided Action** element and search for the
 
 ---
 
+## Preview Approval Business API (v67.0+ coverage)
+
+In addition to the 6 Standard Invocable Actions, Advanced Approvals exposes a Connect REST **Business API** for previewing an approval submission before actually submitting it:
+
+**REST URI**: `POST /services/data/v68.0/connect/advanced-approvals/approval-submission/preview`
+
+This resource lets a caller simulate what approval steps/approvers would be generated for a record without creating a real `ApprovalSubmission`. Starting in **API v67.0**, the request body supports an `inputParameters` field, letting callers pass additional context values into the preview evaluation (useful for previewing approval outcomes under "what-if" field values before committing a real submission).
+
+*(Annotated: this skill's core focus is the 6 Standard Invocable Actions; the exact full request/response schema for this Business API is documented under RLM Developer Guide, Chapter 9: Advanced Approvals › Business APIs [printed pp. 1817–1819] — consult that section directly before building against it in production.)*
+
+---
+
 ## ApprovalWorkItem Smart Approval Fields
+
+_Fields confirmed in the v68 guide (RLM Developer Guide, Ch.9 Advanced Approvals → Fields on Standard Objects, ApprovalWorkItem)._
 
 | Field | Type | Description |
 |---|---|---|
@@ -215,8 +229,8 @@ Smart approval automatically carries forward a prior approval decision when the 
 
 | Object | Description |
 |---|---|
-| `ApprovalSubmission` | Represents a submitted approval request; has a status (Active, Recalled, Cancelled, Completed) |
-| `ApprovalWorkItem` | A single step in an approval process, assigned to a user; has a decision (Pending, Approved, Rejected, Reassigned) |
+| `ApprovalSubmission` | Represents a submitted approval request; `Status` picklist values are Approved, Canceled, Errored, InProgress, Recalled, Rejected, Suspended (corrected — the base object has no "Active"/"Cancelled"/"Completed" values; source: Salesforce Object Reference, ApprovalSubmission) |
+| `ApprovalWorkItem` | A single step in an approval process, assigned to a user; `Status` picklist values are Approved, Assigned, Canceled, Errored, Recalled, Rejected, Withdrawn (corrected — there is no "Pending"/"Reassigned" value; source: Salesforce Object Reference, ApprovalWorkItem) |
 | `FlowOrchestrationInstance` | Records an execution instance of a Flow Orchestration (used by `getPreviousRelaRecDetails`) |
 
 ---
@@ -228,8 +242,8 @@ Cause: Running user lacks permission for the specific action (e.g., override req
 Solution: Assign the appropriate permission set that grants the required custom permission.
 
 ### `getPreviousRelaRecDetails` returns "Invalid API version"
-Cause: Called against API v65.0 or earlier.
-Solution: This action requires API v66.0+. Confirm `sf config get apiVersion` is `66.0`.
+Cause: Called against an API version earlier than this action's introduction version (v66.0).
+Solution: This skill targets API v68.0+; confirm `sf config get apiVersion` returns `68.0` (or later) and that it is at least `66.0`, since that is this specific action's minimum supported version.
 
 ### `approvalDecision` case sensitivity
 Cause: Values must be lowercase: `approve` and `reject`.
@@ -259,11 +273,12 @@ Advanced Approvals is metadata-only (invocable actions + permission sets). No da
 
 | Version | Date | Change |
 |---|---|---|
+| 2.0.0 | 2026-09-11 | v68.0 re-baseline: bumped compatibility and all REST URIs to API v68.0; corrected the `getPreviousRelaRecDetails` "v66.0 only" mislabel — it's available in v66.0 **and later**, including v68.0; corrected `ApprovalSubmission`/`ApprovalWorkItem` `Status` picklist values in Object Reference; updated Common Issues version framing; replaced page-number citation with a section-title citation; annotated a possible doc inconsistency in `stepApiNamesList`'s documented type |
 | 1.1.0 | 2026-05-02 | Added Deployment section; added See Also table; `getPreviousRelaRecDetails` v66.0-only note |
 | 1.0.0 | 2026-04-01 | Initial skill — 6 invocable actions, REST pattern, Apex pattern, smart approval fields |
 
 ---
 
 ## References
-- RLM Developer Guide v66.0, Chapter 9: Advanced Approvals (p. 1670)
+- RLM Developer Guide (v68.0, Winter '27) — Chapter 9: Advanced Approvals › Standard Invocable Actions & Business APIs
 - See `references/approvals-flow-patterns.md` for Flow and FlowActionCall metadata examples

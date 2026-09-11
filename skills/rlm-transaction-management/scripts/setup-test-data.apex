@@ -21,6 +21,20 @@
  *   - Configure product attributes (run PST separately after getting quoteLineItemId)
  *   - Submit for approval or convert to order
  *   - Create billing schedules
+ *
+ * v68 (Winter '27) RE-BASELINE NOTE (2026-09-11):
+ *   All object/field API names below (Account.Name, Pricebook2.{IsStandard,IsActive},
+ *   PriceBookEntry.{Id,Product2Id,Product2.Name,UnitPrice,ProductSellingModelId,IsActive},
+ *   Opportunity.{Name,AccountId,StageName,CloseDate,Pricebook2Id},
+ *   Quote.{Name,OpportunityId,Pricebook2Id,Status,ExpirationDate},
+ *   QuoteLineItem.{QuoteId,PricebookEntryId,Quantity,UnitPrice,ProductSellingModelId}) are core
+ *   standard/RLM fields that predate v66 and were not found to have changed in the v68 Transaction
+ *   Management chapter sections reviewed for this re-baseline (Standard Objects, Business APIs,
+ *   Standard Invocable Actions, printed pp. 1234-1799). No renames or removals surfaced. This script
+ *   required no field-level corrections. Annotated per the re-baseline's "verify, don't silently
+ *   rewrite" convention — a dedicated read of Ch.8 "Fields on Std Objects" (printed pp. 1367-1403)
+ *   for Order/OrderItem/Quote/QuoteLineItem was not performed in this pass; if a future pass finds
+ *   discrepancies there, update this script accordingly.
  */
 
 // ── 1. Find or create a test Account ─────────────────────────────────────────

@@ -1,5 +1,7 @@
 # GUID Strategy — Patterns and Scripts
 
+*Verified against RLM Developer Guide (v68.0, Winter '27) — Chapter 3: Revenue Management Deployment › Global Unique ID Setup, Create a GUID Field, GUID Design and Usage. Guidance below (good/poor GUID design, field creation steps, non-extensible-object handling) is unchanged from the v68 guide.*
+
 ## Why GUIDs Are Required
 
 Salesforce record IDs are org-specific. The same product in DEV, SIT, and PROD has three different Salesforce IDs. Without a custom GUID field, you cannot reliably upsert records across orgs — you'll create duplicates or corrupt data.
